@@ -1069,6 +1069,10 @@ const NewBillForm = ({ billId, isEditMode = false }) => {
   const bulkScanBufferRef = useRef("");
   const bulkScanTimeoutRef = useRef(null);
 
+  // AI bill-image/PDF scan states
+  const [scanningBillFile, setScanningBillFile] = useState(false);
+  const billFileInputRef = useRef(null);
+
   // Add Item to Group Modal state
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
   const [activeGroupRow, setActiveGroupRow] = useState(null);
@@ -1537,6 +1541,118 @@ const NewBillForm = ({ billId, isEditMode = false }) => {
       returnable: false,
     };
     setTableRows([...tableRows, newRow]);
+  };
+
+  // Build a bill row from an AI-extracted product item
+  const buildRowFromExtractedItem = (it) => {
+    const qty = Number(it?.quantity) > 0 ? Number(it.quantity) : 1;
+    const rate = Number.isFinite(Number(it?.costPrice)) ? Number(it.costPrice) : 0;
+    const mrp = Number.isFinite(Number(it?.mrp)) ? Number(it.mrp) : 0;
+    const amount = qty * rate;
+    return {
+      id: Date.now() + Math.floor(Math.random() * 100000),
+      item: it?.itemName || "",
+      itemData: null,
+      itemDescription: it?.itemName || "",
+      category: "BR code",
+      sku: getNextUniqueProductCode(),
+      itemCode: "",
+      hsnCode: it?.hsnCode || "",
+      size: "",
+      quantity: qty.toFixed(2),
+      rate: rate.toFixed(2),
+      sellingPrice: mrp.toFixed(2),
+      mrp: mrp.toFixed(2),
+      percentage: "",
+      tax: "",
+      customer: "",
+      amount: amount.toFixed(2),
+      baseAmount: amount.toFixed(2),
+      discountedAmount: amount.toFixed(2),
+      cgstAmount: "0.00",
+      sgstAmount: "0.00",
+      igstAmount: "0.00",
+      lineTaxTotal: "0.00",
+      lineTotal: amount.toFixed(2),
+      taxCode: "",
+      taxPercent: 0,
+      cgstPercent: 0,
+      sgstPercent: 0,
+      igstPercent: 0,
+      isInterState: false,
+      returnable: false,
+    };
+  };
+
+  // Scan an uploaded bill image/PDF and auto-fill line items via the backend AI endpoint
+  const handleScanBillFile = async (e) => {
+    const file = e?.target?.files?.[0];
+    if (file) {
+      const okTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "application/pdf",
+      ];
+      if (!okTypes.includes(file.type)) {
+        alert("Please upload a PNG/JPG/WEBP image or a PDF of the bill.");
+        if (billFileInputRef.current) billFileInputRef.current.value = "";
+        return;
+      }
+      // ~8MB guard (backend JSON limit is 10MB; base64 inflates ~33%)
+      if (file.size > 7 * 1024 * 1024) {
+        alert("File is too large. Please upload an image/PDF under 7 MB.");
+        if (billFileInputRef.current) billFileInputRef.current.value = "";
+        return;
+      }
+
+      setScanningBillFile(true);
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || "");
+            const comma = result.indexOf(",");
+            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const resp = await fetch(`${API_URL}/api/purchase/bills/extract-from-file`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileData: base64, mediaType: file.type }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || !data?.success) {
+          alert(data?.message || "Could not read the bill. Please try a clearer image.");
+          return;
+        }
+        const extracted = Array.isArray(data.items) ? data.items : [];
+        if (extracted.length === 0) {
+          alert("No product rows were detected in that file. Try a clearer photo or a cropped image of just the items table.");
+          return;
+        }
+
+        const newRows = extracted.map(buildRowFromExtractedItem);
+        // Drop the leading blank row (if the table only has one empty row)
+        setTableRows((prev) => {
+          const isBlank = (r) => !r.item && (!r.rate || r.rate === "0.00") && (!r.mrp || r.mrp === "0.00");
+          const base = prev.length === 1 && isBlank(prev[0]) ? [] : prev;
+          return [...base, ...newRows];
+        });
+        alert(`Added ${newRows.length} item(s) from the bill. Please review the name, quantity, cost price and MRP before saving.`);
+      } catch (err) {
+        console.error("Scan bill file error:", err);
+        alert("Something went wrong while reading the bill. Please try again.");
+      } finally {
+        setScanningBillFile(false);
+        if (billFileInputRef.current) billFileInputRef.current.value = "";
+      }
+    }
   };
 
   const handleDeleteRow = (rowId) => {
@@ -4480,6 +4596,34 @@ ${storeNameZpl}^FO81,21
               className="h-8 px-3.5 inline-flex items-center justify-center rounded-none bg-[#f4f4f5] hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors cursor-pointer"
             >
               Add Bulk Items
+            </button>
+
+            {/* AI: scan bill image/PDF to auto-fill items */}
+            <input
+              ref={billFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+              className="hidden"
+              onChange={handleScanBillFile}
+            />
+            <button
+              type="button"
+              disabled={scanningBillFile}
+              onClick={() => billFileInputRef.current?.click()}
+              className="h-8 px-3.5 inline-flex items-center justify-center gap-1.5 rounded-none bg-purple-600 hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors cursor-pointer"
+              title="Upload a photo or PDF of a bill — AI reads the name, quantity, cost price and MRP into the table"
+            >
+              {scanningBillFile ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Reading bill…
+                </>
+              ) : (
+                <>
+                  <UploadCloud size={14} />
+                  Scan Bill Image / PDF
+                </>
+              )}
             </button>
           </div>
         </div>

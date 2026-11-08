@@ -8,8 +8,12 @@ import {
   convertPurchaseOrderToBill,
   convertPurchaseReceiveToBill,
 } from "../controllers/BillController.js";
+import { extractBillFromFile } from "../controllers/BillExtractController.js";
 
 const router = express.Router();
+
+// AI: extract line items from an uploaded bill image / PDF
+router.post("/purchase/bills/extract-from-file", extractBillFromFile);
 
 router
   .route("/purchase/bills")
