@@ -11,6 +11,8 @@ const mapLocNameToWarehouse = (locName) => {
   
   // Handle special cases first - normalize all Edapally variations to "Edapally Branch"
   const locNameLower = locName.toLowerCase().trim();
+  if (locNameLower.includes("warehouse")) return "Warehouse";
+  if (locNameLower.replace(/[\s\-_.]+/g, "").includes("bridesberry")) return "BridesBerry";
   if (locNameLower === "z-edapally1" || 
       locNameLower === "zedapallyadmin" || 
       locNameLower === "edapallyadmin" ||
@@ -802,7 +804,8 @@ export const createPurchaseReceive = async (req, res) => {
     } else {
       // For other users, determine warehouse from locCode
        const fallbackLocations = [
-        { "locName": "Warehouse", "locCode": "858" }
+        { "locName": "Warehouse", "locCode": "858" },
+        { "locName": "BridesBerry", "locCode": "155" }
       ];
       
       const userLocCode = receiveData.locCode || "";
@@ -1207,6 +1210,10 @@ export const updatePurchaseReceive = async (req, res) => {
       console.log(`📍 Admin email detected (${userId}), using warehouse: "Warehouse" (ignoring locCode)`);
     } else {
       // For other users, determine warehouse from locCode
+      const fallbackLocations = [
+        { "locName": "Warehouse", "locCode": "858" },
+        { "locName": "BridesBerry", "locCode": "155" }
+      ];
       
       const userLocCode = receiveData.locCode || purchaseReceive.locCode || "";
       
@@ -1540,7 +1547,8 @@ export const sendPurchaseReceive = async (req, res) => {
       console.log(`📍 Admin email detected (${userId}), using warehouse: "Warehouse" (ignoring locCode)`);
     } else {
        const fallbackLocations = [
-        { "locName": "Warehouse", "locCode": "858" }
+        { "locName": "Warehouse", "locCode": "858" },
+        { "locName": "BridesBerry", "locCode": "155" }
       ];
 
       const userLocCode = purchaseReceive.locCode || "";

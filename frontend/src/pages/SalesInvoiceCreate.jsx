@@ -6,6 +6,7 @@ import { Search, Image as ImageIcon, ChevronDown, X, Settings, Pencil, Check, Pl
 import Head from "../components/Head";
 import baseUrl from "../api/api";
 import { mapLocNameToWarehouse } from "../utils/warehouseMapping";
+import { getActiveStores } from "../utils/storeService";
 import useSidebar from "../hooks/useSidebar";
 
 // Utility function to round to 2 decimal places without floating-point errors
@@ -714,6 +715,13 @@ const SalesInvoiceCreate = () => {
     // Main office and special locations
     "Head Office": "759",
     "Warehouse": "858",
+    // BridesBerry locations (code: 155)
+    "BridesBerry": "155",
+    "Bridesberry": "155",
+    "Brides Berry": "155",
+    "bridesberry": "155",
+    "BridesBerry Store": "155",
+    "BridesBerry Branch": "155",
     // Main stores
     "Production": "101",
     "Office": "102",
@@ -1670,6 +1678,48 @@ const SalesInvoiceCreate = () => {
       return;
     }
 
+    // Validate split payment amounts if split payment is selected
+    if (isSplitPayment) {
+      const cashAmt = parseFloat(splitPaymentAmounts.cash || 0) || 0;
+      const bankAmt = parseFloat(splitPaymentAmounts.bank || 0) || 0;
+      const upiAmt = parseFloat(splitPaymentAmounts.upi || 0) || 0;
+      const rblAmt = parseFloat(splitPaymentAmounts.rbl || 0) || 0;
+
+      if (cashAmt < 0 || bankAmt < 0 || upiAmt < 0 || rblAmt < 0) {
+        showStockAlert("Split payment amounts cannot be negative", 'error');
+        return;
+      }
+
+      const splitTotal = round2(cashAmt + bankAmt + upiAmt + rblAmt);
+      const targetTotal = round2(Math.abs(parseFloat(totals.finalTotal) || 0));
+
+      if (targetTotal <= 0) {
+        showStockAlert("Invoice total must be greater than zero before splitting payments. Please check line items.", 'error');
+        return;
+      }
+
+      if (splitTotal === 0) {
+        showStockAlert("Please enter the split payment amounts across Cash, Card, or UPI", 'error');
+        return;
+      }
+
+      const diff = round2(splitTotal - targetTotal);
+      if (Math.abs(diff) > 0.01) {
+        if (diff > 0) {
+          showStockAlert(
+            `Split payment total (₹${splitTotal.toFixed(2)}) exceeds invoice total (₹${targetTotal.toFixed(2)}) by ₹${diff.toFixed(2)}. Total money must match exactly.`,
+            'error'
+          );
+        } else {
+          showStockAlert(
+            `Split payment total (₹${splitTotal.toFixed(2)}) does not match invoice total (₹${targetTotal.toFixed(2)}). Remaining to allocate: ₹${Math.abs(diff).toFixed(2)}.`,
+            'error'
+          );
+        }
+        return;
+      }
+    }
+
     // Validate that all line items have required data
     const invalidItems = lineItems.filter(item => !item.item || !item.quantity || parseFloat(item.quantity) <= 0);
     if (invalidItems.length > 0) {
@@ -2020,19 +2070,54 @@ Customer Service Available`;
     }
     
     // Try case-insensitive match
-    const branchNameLower = branchName.toLowerCase();
+    const branchNameLower = branchName.toLowerCase().trim();
     for (const [key, value] of Object.entries(branchToLocCodeMap)) {
-      if (key.toLowerCase() === branchNameLower) {
+      if (key.toLowerCase().trim() === branchNameLower) {
         console.log(`✅ Case-insensitive match found: ${branchName} -> ${key} -> ${value}`);
         return value;
       }
     }
     
-    // Try partial match (remove "Branch" suffix and try again)
-    const withoutBranch = branchName.replace(/\s*Branch\s*$/i, '').trim();
+    // Try partial match (remove "Branch" or "Store" suffix and try again)
+    const withoutBranch = branchName.replace(/\s*(Branch|Store)\s*$/i, '').trim();
     if (branchToLocCodeMap[withoutBranch]) {
       console.log(`✅ Partial match found: ${branchName} -> ${withoutBranch} -> ${branchToLocCodeMap[withoutBranch]}`);
       return branchToLocCodeMap[withoutBranch];
+    }
+    for (const [key, value] of Object.entries(branchToLocCodeMap)) {
+      if (key.toLowerCase().trim() === withoutBranch.toLowerCase()) {
+        return value;
+      }
+    }
+
+    // Try finding in active stores from storeService / localStorage
+    try {
+      const activeStores = getActiveStores();
+      const foundStore = activeStores?.find(s => 
+        (s.locName && s.locName.toLowerCase().trim() === branchNameLower) ||
+        (s.name && s.name.toLowerCase().trim() === branchNameLower) ||
+        (s.label && s.label.toLowerCase().trim() === branchNameLower) ||
+        (s.locCode && s.locCode.toString().trim() === branchNameLower)
+      );
+      if (foundStore?.locCode) {
+        console.log(`✅ Match from activeStores: ${branchName} -> ${foundStore.locCode}`);
+        return foundStore.locCode.toString();
+      }
+    } catch (e) {}
+
+    // If branchName is itself digits (e.g. "858" or "155"), return it
+    if (/^\d+$/.test(branchName.trim())) {
+      return branchName.trim();
+    }
+
+    // Keyword heuristics
+    if (branchNameLower.includes("bridesberry") || branchNameLower.includes("brides berry")) return "155";
+    if (branchNameLower.includes("warehouse")) return "858";
+
+    // User locCode fallback
+    const user = getUserInfo();
+    if (user?.locCode) {
+      return user.locCode.toString();
     }
     
     console.log(`❌ No match found for branch: "${branchName}"`);
@@ -2177,14 +2262,8 @@ Customer Service Available`;
         // Fetch sales persons
         fetch(`${API_URL}/api/sales-persons/loc/${branchLocCode}?isActive=true`)
           .then(res => {
-            if (res.status === 404) {
-              // Store doesn't exist for this branch yet - this is expected for new branches
-              setSalesPersons([]);
-              setSalesperson("");
-              return null;
-            }
             if (!res.ok) {
-              throw new Error(`HTTP error! status: ${res.status}`);
+              return { salesPersons: [] };
             }
             return res.json();
           })
@@ -2197,25 +2276,21 @@ Customer Service Available`;
                 const isPlaceholderLastName = !lastName || lastName === "-";
                 const displayName = isPlaceholderLastName ? sp.firstName : `${sp.firstName} ${lastName}`;
                 return {
-                  id: sp.id,
+                  id: sp.id || sp._id,
                   name: displayName,
                   fullName: displayName,
                   ...sp
                 };
               });
               setSalesPersons(formatted);
-              
-              // Don't auto-select any sales person - user must choose manually
-              // This prevents unwanted auto-selection of sales persons
             } else {
               setSalesPersons([]);
-              setSalesperson("");
             }
           })
           .catch(err => {
             // Silently ignore errors - expected for new branches
+            console.warn("Could not fetch sales persons for branch:", err);
             setSalesPersons([]);
-            setSalesperson("");
           })
           .finally(() => setLoadingSalesPersons(false));
       });
@@ -2223,7 +2298,6 @@ Customer Service Available`;
       // No location code for this branch
       console.warn(`No location code mapping found for branch: ${branch}`);
       setSalesPersons([]);
-      setSalesperson("");
     }
   }, [branch, API_URL]);
 
@@ -2757,9 +2831,10 @@ Customer Service Available`;
     // If Enter key is pressed, process the scanned code
     if (char === "Enter") {
       e.preventDefault();
-      const scannedCode = bulkScanBufferRef.current.trim();
+      // Safely read from buffer ref, input state, or target value
+      const scannedCode = (bulkScanBufferRef.current.trim() || bulkScanInput.trim() || e.target.value?.trim());
       
-      if (scannedCode.length > 0) {
+      if (scannedCode && scannedCode.length > 0) {
         await processBulkScan(scannedCode);
         bulkScanBufferRef.current = "";
         setBulkScanInput("");
@@ -2779,7 +2854,7 @@ Customer Service Available`;
     // Set a timeout to reset buffer if no activity
     bulkScanTimeoutRef.current = setTimeout(() => {
       bulkScanBufferRef.current = "";
-    }, 100);
+    }, 150);
   };
   
   const processBulkScan = async (scannedCode) => {
@@ -2793,29 +2868,45 @@ Customer Service Available`;
         return;
       }
       
-      // Find item by SKU
-      const foundItem = bulkItems.find(item => 
-        item.sku && item.sku.toLowerCase() === scannedCode.toLowerCase()
-      );
+      const cleanCode = (scannedCode || "").toString().trim().toLowerCase();
+
+      // Find item by SKU, itemCode, UPC, EAN, barcode, ID, or itemName
+      const foundItem = bulkItems.find(item => {
+        if (!item) return false;
+        const sku = (item.sku || "").toString().trim().toLowerCase();
+        const itemCode = (item.itemCode || "").toString().trim().toLowerCase();
+        const upc = (item.upc || "").toString().trim().toLowerCase();
+        const ean = (item.ean || "").toString().trim().toLowerCase();
+        const barcode = (item.barcode || "").toString().trim().toLowerCase();
+        const id = (item._id || "").toString().trim().toLowerCase();
+        const name = (item.itemName || item.name || "").toString().trim().toLowerCase();
+
+        return (
+          sku === cleanCode ||
+          itemCode === cleanCode ||
+          upc === cleanCode ||
+          ean === cleanCode ||
+          barcode === cleanCode ||
+          id === cleanCode ||
+          name === cleanCode
+        );
+      });
       
       if (foundItem) {
         console.log(`✅ Found item:`, foundItem);
         console.log(`📦 Warehouse stocks:`, foundItem.warehouseStocks);
         
-        // Get available stock using the same logic as display
-        // Use availableForSale if available, otherwise use stockOnHand
+        // Calculate available stock using the same logic as display
         let availableStock = 0;
         if (warehouse && foundItem.warehouseStocks && Array.isArray(foundItem.warehouseStocks)) {
           const targetWarehouseLower = warehouse.toLowerCase().trim();
           
           if (targetWarehouseLower === "warehouse") {
-            // Show total stock from all warehouses
             availableStock = foundItem.warehouseStocks.reduce((sum, ws) => {
               const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
               return sum + Math.max(0, stock);
             }, 0);
           } else {
-            // For specific warehouse, find matching warehouse stock
             const normalizedTargetWarehouse = mapLocNameToWarehouse(warehouse);
             const normalizedTargetWarehouseLower = normalizedTargetWarehouse.toLowerCase().trim();
             
@@ -2833,18 +2924,28 @@ Customer Service Available`;
               availableStock = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
             }
           }
+        } else if (foundItem.warehouseStocks && Array.isArray(foundItem.warehouseStocks)) {
+          availableStock = foundItem.warehouseStocks.reduce((sum, ws) => {
+            const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
+            return sum + Math.max(0, stock);
+          }, 0);
+        } else {
+          availableStock = parseFloat(foundItem.stock || foundItem.stockOnHand || 0);
         }
         
         console.log(`📊 Available stock for ${foundItem.itemName}: ${availableStock}`);
         
-        // Check if item already in bulk list
+        // Check if item already in bulk list (check both item._id and itemData._id)
         setBulkScannedItems(prev => {
-          const existingIndex = prev.findIndex(i => i.item._id === foundItem._id);
+          const existingIndex = prev.findIndex(i => {
+            const existingId = i.itemData?._id || (typeof i.item === 'object' ? i.item?._id : null);
+            return existingId && String(existingId) === String(foundItem._id);
+          });
           
           if (existingIndex >= 0) {
             // Check if incrementing would exceed available stock
             const currentQuantity = prev[existingIndex].quantity;
-            if (currentQuantity >= availableStock) {
+            if (availableStock > 0 && currentQuantity >= availableStock) {
               showStockAlert(`❌ Cannot add more. Only ${availableStock} pcs available for ${foundItem.itemName}`, 'error');
               return prev;
             }
@@ -2864,19 +2965,19 @@ Customer Service Available`;
               return prev;
             }
             
-            // Add new item
+            // Add new item with FULL item object
             console.log(`➕ Added new item ${foundItem.itemName}`);
             return [...prev, {
-              item: foundItem.itemName || "",
-              itemData: foundItem,
+              item: foundItem,        // Store complete item object
+              itemData: foundItem,    // Store complete item object
               quantity: 1,
-              sku: foundItem.sku
+              sku: foundItem.sku || foundItem.itemCode || ""
             }];
           }
         });
       } else {
-        console.log(`❌ Item not found for SKU: "${scannedCode}"`);
-        showStockAlert(`Item with SKU "${scannedCode}" not found`, 'error');
+        console.log(`❌ Item not found for code: "${scannedCode}"`);
+        showStockAlert(`Item with code/SKU "${scannedCode}" not found`, 'error');
       }
     } catch (error) {
       console.error("Error processing bulk scan:", error);
@@ -2886,75 +2987,109 @@ Customer Service Available`;
   
   const handleBulkAddItems = () => {
     if (bulkScannedItems.length === 0) {
-      showStockAlert("Please scan at least one item", 'error');
+      showStockAlert("Please scan or select at least one item", 'error');
       return;
     }
     
-    // Add all scanned items to line items
+    const allTaxOptions = [...taxOptions, ...nonTaxableOptions];
+    const discountConfig = {
+      value: discount.value,
+      type: discount.type,
+      applyAfterTax: applyDiscountAfterTax,
+    };
+
+    // Helper to calculate available stock
+    const calculateStock = (targetItem, targetWarehouse) => {
+      if (!targetItem?.warehouseStocks || !Array.isArray(targetItem.warehouseStocks) || !targetWarehouse) {
+        return targetItem?.stock || targetItem?.stockOnHand || 0;
+      }
+      const normalizedTarget = mapLocNameToWarehouse(targetWarehouse).toLowerCase().trim();
+      const matchingStock = targetItem.warehouseStocks.find(ws => {
+        if (!ws?.warehouse) return false;
+        const normalizedStock = mapLocNameToWarehouse(ws.warehouse.toString()).toLowerCase().trim();
+        return normalizedStock === normalizedTarget ||
+               normalizedStock.includes(normalizedTarget) ||
+               normalizedTarget.includes(normalizedStock);
+      });
+      if (!matchingStock) return 0;
+      const available = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
+      return Math.max(0, available);
+    };
+
+    // Add all scanned items to line items with complete values and full GST calculations
     const newLineItems = bulkScannedItems.map(scanned => {
-      const item = scanned.item;
-      const quantity = scanned.quantity;
+      const itemData = scanned.itemData || (typeof scanned.item === 'object' ? scanned.item : null) || {};
+      const itemName = itemData.itemName || itemData.name || (typeof scanned.item === 'string' ? scanned.item : "") || "Item";
+      const quantity = Math.max(1, Number(scanned.quantity) || 1);
       
-      // Get available stock
-      const getAvailableStock = (item, targetWarehouse) => {
-        if (!item.warehouseStocks || !Array.isArray(item.warehouseStocks) || !targetWarehouse) return 0;
-        
-        // Use warehouse mapping to normalize target warehouse name
-        const normalizedTargetWarehouse = mapLocNameToWarehouse(targetWarehouse);
-        const targetWarehouseLower = normalizedTargetWarehouse.toLowerCase().trim();
-        
-        const matchingStock = item.warehouseStocks.find(ws => {
-          if (!ws.warehouse) return false;
-          
-          // Normalize the stock warehouse name using the same mapping
-          const normalizedStockWarehouse = mapLocNameToWarehouse(ws.warehouse.toString());
-          const stockWarehouse = normalizedStockWarehouse.toLowerCase().trim();
-          
-          return stockWarehouse === targetWarehouseLower || 
-                 stockWarehouse.includes(targetWarehouseLower) ||
-                 targetWarehouseLower.includes(stockWarehouse);
-        });
-        
-        if (!matchingStock) return 0;
-        const availableForSale = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
-        return Math.max(0, availableForSale);
-      };
-      
-      const availableStock = warehouse ? getAvailableStock(item, warehouse) : 0;
-      const rate = typeof item.sellingPrice === 'number' ? item.sellingPrice : (typeof item.costPrice === 'number' ? item.costPrice : 0);
-      const amount = round2(quantity * rate);
-      
-      return {
-        id: Date.now() + Math.random(),
-        item: item.itemName || "",
-        itemData: item, // Store the full item object for ItemDropdown
-        itemDetails: item.itemName || "",
-        size: item.size || extractSizeFromName(item.itemName),
-        quantity: quantity.toString(),
-        rate: rate.toFixed(2),
-        discount: "0",
-        tax: "",
-        amount: amount.toFixed(2),
+      const sellingPrice = itemData.sellingPrice !== undefined && itemData.sellingPrice !== null && itemData.sellingPrice !== ""
+        ? parseFloat(itemData.sellingPrice)
+        : (itemData.costPrice !== undefined && itemData.costPrice !== null && itemData.costPrice !== "" ? parseFloat(itemData.costPrice) : (parseFloat(itemData.mrp) || 0));
+
+      const rate = isNaN(sellingPrice) ? 0 : sellingPrice;
+      const size = itemData.size || extractSizeFromName(itemName) || "";
+      const availableStock = warehouse ? calculateStock(itemData, warehouse) : (parseFloat(itemData.stockOnHand) || 0);
+
+      const baseLineItem = {
+        ...blankLineItem(),
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        item: itemName,
+        itemData: itemData,
+        itemDetails: itemName,
+        size: size,
+        quantity: quantity,
+        rate: rate,
+        remarks: "",
         availableStock: availableStock,
-        sku: item.sku || "",
+        sku: itemData.sku || itemData.itemCode || scanned.sku || "",
+      };
+
+      // Run full GST, tax and line total calculation
+      const gstCalc = calculateGSTLineItem(baseLineItem, discountConfig, allTaxOptions);
+
+      return {
+        ...baseLineItem,
+        ...gstCalc,
+        rate: rate.toFixed(2),
+        baseAmount: parseFloat(gstCalc.baseAmount),
+        discountedAmount: parseFloat(gstCalc.discountedAmount),
+        cgstAmount: parseFloat(gstCalc.cgstAmount),
+        sgstAmount: parseFloat(gstCalc.sgstAmount),
+        igstAmount: parseFloat(gstCalc.igstAmount),
+        lineTaxTotal: parseFloat(gstCalc.lineTaxTotal),
+        lineTotal: parseFloat(gstCalc.lineTotal),
+        amount: parseFloat(gstCalc.baseAmount),
+        taxPercent: gstCalc.taxPercent,
+        cgstPercent: gstCalc.cgstPercent,
+        sgstPercent: gstCalc.sgstPercent,
+        igstPercent: gstCalc.igstPercent,
+        isInterState: gstCalc.isInterState,
       };
     });
     
     // Add to existing line items (remove blank item if exists)
     setLineItems(prev => {
-      const filtered = prev.filter(item => item.itemDetails && item.itemDetails.trim() !== "");
+      const filtered = prev.filter(item => {
+        const name = typeof item.item === 'string' ? item.item : (item.item?.itemName || item.itemDetails || "");
+        return name && name.trim() !== "";
+      });
       return [...filtered, ...newLineItems];
     });
 
     // Auto-set sub category from bulk added items
-    const categories = [...new Set(bulkScannedItems.map(s => (s.item.category || "").toLowerCase().trim()))];
+    const categories = [...new Set(bulkScannedItems.map(s => {
+      const itm = s.itemData || (typeof s.item === 'object' ? s.item : {});
+      return (itm.category || "").toLowerCase().trim();
+    }))].filter(Boolean);
+
     if (categories.length === 1) {
       if (categories[0] === "shoe") setSubCategory("shoe sales");
       else if (categories[0] === "shirt") setSubCategory("shirt sales");
     } else if (categories.includes("shoe") && categories.includes("shirt")) {
       setSubCategory("mixed sales");
     }
-    console.log(`✅ Added ${newLineItems.length} items to invoice`);
+
+    console.log(`✅ Added ${newLineItems.length} items with complete values to invoice`);
     handleBulkAddClose();
   };
   
@@ -3215,7 +3350,16 @@ Customer Service Available`;
                             }}
                             className="w-full h-[42px] appearance-none rounded-none border border-[#E5E7EB] bg-white px-3.5 pr-8 text-sm text-[#111827] focus:border-[#8B5CF6] focus:outline-none transition-colors cursor-pointer"
                           >
-                            <option value="Warehouse">Warehouse</option>
+                            {(() => {
+                              const activeStores = getActiveStores?.() || [];
+                              const storeNames = activeStores.map(s => s.locName || s.name).filter(Boolean);
+                              if (!storeNames.includes("Warehouse")) storeNames.unshift("Warehouse");
+                              if (!storeNames.includes("BridesBerry")) storeNames.push("BridesBerry");
+                              if (branch && !storeNames.includes(branch)) storeNames.push(branch);
+                              return storeNames.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                              ));
+                            })()}
                           </select>
                           <ChevronDown
                             size={16}
@@ -3593,41 +3737,185 @@ Customer Service Available`;
                   })()}
                 </div>
 
-                {/* Split inputs */}
-                {isSplitPayment && (
-                  <div className="grid grid-cols-3 gap-2 pt-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-[#8B5CF6] mb-1">Cash</label>
-                      <input
-                        type="number"
-                        value={splitPaymentAmounts.cash}
-                        onChange={(e) => setSplitPaymentAmounts((p) => ({ ...p, cash: e.target.value }))}
-                        placeholder="Cash"
-                        className="w-full min-w-0 h-9 rounded-none border border-[#E5E7EB] px-2 text-xs text-center text-[#111827] focus:border-[#8B5CF6] focus:outline-none"
-                      />
+                {/* Split inputs with Live Total Validation */}
+                {isSplitPayment && (() => {
+                  const cashVal = parseFloat(splitPaymentAmounts.cash) || 0;
+                  const cardVal = parseFloat(splitPaymentAmounts.bank) || 0;
+                  const upiVal = parseFloat(splitPaymentAmounts.upi) || 0;
+                  const rblVal = parseFloat(splitPaymentAmounts.rbl) || 0;
+                  const currentSplitTotal = round2(cashVal + cardVal + upiVal + rblVal);
+                  const targetInvoiceTotal = round2(Math.abs(parseFloat(totals.finalTotal) || 0));
+                  const diff = round2(targetInvoiceTotal - currentSplitTotal);
+                  const isMatched = Math.abs(diff) <= 0.01 && currentSplitTotal > 0 && targetInvoiceTotal > 0;
+                  const isOver = diff < -0.01;
+                  const isUnder = diff > 0.01;
+
+                  return (
+                    <div className="pt-3 space-y-2.5">
+                      <div className="grid grid-cols-3 gap-2">
+                        {/* Cash Field */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-[#8B5CF6]">Cash</label>
+                            {isUnder && diff > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSplitPaymentAmounts(p => ({
+                                  ...p,
+                                  cash: (round2((parseFloat(p.cash) || 0) + diff)).toFixed(2)
+                                }))}
+                                className="text-[10px] text-[#8B5CF6] hover:underline font-medium cursor-pointer"
+                                title="Fill remaining balance into Cash"
+                              >
+                                +Fill
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={splitPaymentAmounts.cash}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "" || parseFloat(val) >= 0) {
+                                setSplitPaymentAmounts((p) => ({ ...p, cash: val }));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className={`w-full min-w-0 h-9 rounded-md border px-2 text-xs text-center text-[#111827] focus:outline-none transition-colors ${
+                              isOver ? "border-red-400 bg-red-50/40 focus:border-red-500" :
+                              isMatched ? "border-green-400 bg-green-50/40 focus:border-green-500" :
+                              "border-[#E5E7EB] focus:border-[#8B5CF6]"
+                            }`}
+                          />
+                        </div>
+
+                        {/* Card Field */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-[#8B5CF6]">Card</label>
+                            {isUnder && diff > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSplitPaymentAmounts(p => ({
+                                  ...p,
+                                  bank: (round2((parseFloat(p.bank) || 0) + diff)).toFixed(2)
+                                }))}
+                                className="text-[10px] text-[#8B5CF6] hover:underline font-medium cursor-pointer"
+                                title="Fill remaining balance into Card"
+                              >
+                                +Fill
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={splitPaymentAmounts.bank}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "" || parseFloat(val) >= 0) {
+                                setSplitPaymentAmounts((p) => ({ ...p, bank: val }));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className={`w-full min-w-0 h-9 rounded-md border px-2 text-xs text-center text-[#111827] focus:outline-none transition-colors ${
+                              isOver ? "border-red-400 bg-red-50/40 focus:border-red-500" :
+                              isMatched ? "border-green-400 bg-green-50/40 focus:border-green-500" :
+                              "border-[#E5E7EB] focus:border-[#8B5CF6]"
+                            }`}
+                          />
+                        </div>
+
+                        {/* UPI Field */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-[#8B5CF6]">UPI</label>
+                            {isUnder && diff > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSplitPaymentAmounts(p => ({
+                                  ...p,
+                                  upi: (round2((parseFloat(p.upi) || 0) + diff)).toFixed(2)
+                                }))}
+                                className="text-[10px] text-[#8B5CF6] hover:underline font-medium cursor-pointer"
+                                title="Fill remaining balance into UPI"
+                              >
+                                +Fill
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={splitPaymentAmounts.upi}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "" || parseFloat(val) >= 0) {
+                                setSplitPaymentAmounts((p) => ({ ...p, upi: val }));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className={`w-full min-w-0 h-9 rounded-md border px-2 text-xs text-center text-[#111827] focus:outline-none transition-colors ${
+                              isOver ? "border-red-400 bg-red-50/40 focus:border-red-500" :
+                              isMatched ? "border-green-400 bg-green-50/40 focus:border-green-500" :
+                              "border-[#E5E7EB] focus:border-[#8B5CF6]"
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live Validation & Status Banner */}
+                      <div className={`p-2.5 rounded-lg border text-xs transition-all ${
+                        isMatched
+                          ? "bg-green-50 border-green-200 text-green-800"
+                          : isOver
+                          ? "bg-red-50 border-red-200 text-red-800"
+                          : currentSplitTotal > 0
+                          ? "bg-amber-50 border-amber-200 text-amber-800"
+                          : "bg-gray-50 border-gray-200 text-gray-600"
+                      }`}>
+                        <div className="flex items-center justify-between font-semibold">
+                          <span>Split Total: ₹ {currentSplitTotal.toFixed(2)}</span>
+                          <span>Invoice Total: ₹ {targetInvoiceTotal.toFixed(2)}</span>
+                        </div>
+
+                        <div className="mt-1 pt-1 border-t border-current/15 flex items-center justify-between">
+                          {isMatched ? (
+                            <span className="flex items-center gap-1 font-medium text-green-700">
+                              <span>✓</span> Split payment matches invoice total exactly
+                            </span>
+                          ) : isOver ? (
+                            <span className="flex items-center gap-1 font-medium text-red-700">
+                              <span>⚠️</span> Exceeds total by ₹ {Math.abs(diff).toFixed(2)}
+                            </span>
+                          ) : currentSplitTotal > 0 ? (
+                            <span className="flex items-center gap-1 font-medium text-amber-700">
+                              <span>⏳</span> Remaining: ₹ {diff.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 font-normal">
+                              Enter amounts across payment modes to match ₹ {targetInvoiceTotal.toFixed(2)}
+                            </span>
+                          )}
+
+                          {currentSplitTotal > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSplitPaymentAmounts({ cash: "", bank: "", upi: "", rbl: "" })}
+                              className="text-[10px] text-gray-500 hover:text-gray-800 underline ml-2 cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-[#8B5CF6] mb-1">Card</label>
-                      <input
-                        type="number"
-                        value={splitPaymentAmounts.bank}
-                        onChange={(e) => setSplitPaymentAmounts((p) => ({ ...p, bank: e.target.value }))}
-                        placeholder="Card"
-                        className="w-full min-w-0 h-9 rounded-none border border-[#E5E7EB] px-2 text-xs text-center text-[#111827] focus:border-[#8B5CF6] focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-[#8B5CF6] mb-1">UPI</label>
-                      <input
-                        type="number"
-                        value={splitPaymentAmounts.upi}
-                        onChange={(e) => setSplitPaymentAmounts((p) => ({ ...p, upi: e.target.value }))}
-                        placeholder="UPI"
-                        className="w-full min-w-0 h-9 rounded-none border border-[#E5E7EB] px-2 text-xs text-center text-[#111827] focus:border-[#8B5CF6] focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Sub Total */}
@@ -4386,14 +4674,19 @@ Customer Service Available`;
                             const searchLower = bulkScanInput.toLowerCase();
                             return (
                               item.itemName?.toLowerCase().includes(searchLower) ||
-                              item.sku?.toLowerCase().includes(searchLower)
+                              item.sku?.toLowerCase().includes(searchLower) ||
+                              item.itemCode?.toLowerCase().includes(searchLower) ||
+                              item.barcode?.toLowerCase().includes(searchLower)
                             );
                           }
                           // Show all items if no search term
                           return true;
                         })
                         .map((item) => {
-                          const isSelected = bulkScannedItems.some(s => s.item._id === item._id);
+                          const isSelected = bulkScannedItems.some(s => {
+                            const selectedId = s.itemData?._id || (typeof s.item === 'object' ? s.item?._id : null);
+                            return selectedId && String(selectedId) === String(item._id);
+                          });
                           
                           // Calculate available stock
                           let availableStock = 0;
@@ -4443,8 +4736,9 @@ Customer Service Available`;
                                 if (!isSelected && availableStock > 0) {
                                   setBulkScannedItems(prev => [...prev, {
                                     item: item,
+                                    itemData: item,
                                     quantity: 1,
-                                    sku: item.sku
+                                    sku: item.sku || item.itemCode || ""
                                   }]);
                                   setBulkScanInput("");
                                 }
@@ -4521,145 +4815,135 @@ Customer Service Available`;
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {bulkScannedItems.map((scanned, index) => (
-                        <div key={index} className="bg-white rounded-md border border-[#e5e7eb] p-3">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <div className="text-sm font-medium text-[#1e293b]">
-                                [{scanned.sku}] {scanned.item.itemName}
+                      {bulkScannedItems.map((scanned, index) => {
+                        const itemObj = scanned.itemData || (typeof scanned.item === 'object' ? scanned.item : null) || {};
+                        const displayName = itemObj.itemName || itemObj.name || (typeof scanned.item === 'string' ? scanned.item : "Item");
+                        const sellingPrice = itemObj.sellingPrice !== undefined && itemObj.sellingPrice !== null && itemObj.sellingPrice !== ""
+                          ? parseFloat(itemObj.sellingPrice)
+                          : (itemObj.costPrice !== undefined && itemObj.costPrice !== null && itemObj.costPrice !== "" ? parseFloat(itemObj.costPrice) : (parseFloat(itemObj.mrp) || 0));
+                        const displayPrice = isNaN(sellingPrice) ? 0 : sellingPrice;
+                        const displaySize = itemObj.size || extractSizeFromName(displayName) || "";
+                        const displaySku = scanned.sku || itemObj.sku || itemObj.itemCode || "N/A";
+                        const itemStocks = itemObj.warehouseStocks || [];
+
+                        // Calculate available stock safely
+                        let availableStock = 0;
+                        if (warehouse && Array.isArray(itemStocks)) {
+                          const targetWarehouseLower = warehouse.toLowerCase().trim();
+                          if (targetWarehouseLower === "warehouse") {
+                            availableStock = itemStocks.reduce((sum, ws) => {
+                              const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
+                              return sum + Math.max(0, stock);
+                            }, 0);
+                          } else {
+                            const normalizedTarget = mapLocNameToWarehouse(warehouse).toLowerCase().trim();
+                            const matchingStock = itemStocks.find(ws => {
+                              if (!ws?.warehouse) return false;
+                              const normalizedStock = mapLocNameToWarehouse(ws.warehouse.toString()).toLowerCase().trim();
+                              return normalizedStock === normalizedTarget ||
+                                     normalizedStock.includes(normalizedTarget) ||
+                                     normalizedTarget.includes(normalizedStock);
+                            });
+                            if (matchingStock) {
+                              availableStock = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
+                            }
+                          }
+                        } else if (Array.isArray(itemStocks)) {
+                          availableStock = itemStocks.reduce((sum, ws) => {
+                            const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
+                            return sum + Math.max(0, stock);
+                          }, 0);
+                        } else {
+                          availableStock = parseFloat(itemObj.stock || itemObj.stockOnHand || 0);
+                        }
+
+                        return (
+                          <div key={index} className="bg-white rounded-md border border-[#e5e7eb] p-3 shadow-xs">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-[#1e293b]">
+                                  [{displaySku}] {displayName}
+                                </div>
+                                <div className="text-xs text-[#64748b] mt-1 flex flex-wrap items-center gap-3">
+                                  <span>Rate: <strong className="text-[#1e293b]">₹{displayPrice.toFixed(2)}</strong></span>
+                                  {displaySize && <span>Size: <strong className="text-[#1e293b]">{displaySize}</strong></span>}
+                                  <span>Total: <strong className="text-[#16a34a]">₹{(displayPrice * scanned.quantity).toFixed(2)}</strong></span>
+                                </div>
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveBulkItem(index)}
+                                className="text-[#ef4444] hover:bg-[#fee2e2] p-1 rounded transition-colors ml-2 cursor-pointer"
+                                title="Remove item"
+                              >
+                                <X size={16} />
+                              </button>
                             </div>
-                            <button
-                              onClick={() => handleRemoveBulkItem(index)}
-                              className="text-[#ef4444] hover:bg-[#fee2e2] p-1 rounded transition-colors ml-2"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setBulkScannedItems(prev => {
-                                  const updated = [...prev];
-                                  updated[index] = {
-                                    ...updated[index],
-                                    quantity: Math.max(1, updated[index].quantity - 1)
-                                  };
-                                  return updated;
-                                });
-                              }}
-                              className="w-8 h-8 flex items-center justify-center rounded-full border border-[#d1d5db] hover:bg-[#f3f4f6] transition-colors"
-                            >
-                              <span className="text-[#64748b]">−</span>
-                            </button>
-                            <input
-                              type="number"
-                              value={scanned.quantity}
-                              onChange={(e) => {
-                                const qty = parseInt(e.target.value) || 1;
-                                
-                                // Calculate available stock using same logic as display
-                                let availableStock = 0;
-                                if (warehouse && scanned.item.warehouseStocks && Array.isArray(scanned.item.warehouseStocks)) {
-                                  const targetWarehouseLower = warehouse.toLowerCase().trim();
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBulkScannedItems(prev => {
+                                    const updated = [...prev];
+                                    updated[index] = {
+                                      ...updated[index],
+                                      quantity: Math.max(1, updated[index].quantity - 1)
+                                    };
+                                    return updated;
+                                  });
+                                }}
+                                className="w-8 h-8 flex items-center justify-center rounded-full border border-[#d1d5db] hover:bg-[#f3f4f6] transition-colors cursor-pointer"
+                              >
+                                <span className="text-[#64748b] font-bold">−</span>
+                              </button>
+                              <input
+                                type="number"
+                                value={scanned.quantity}
+                                onChange={(e) => {
+                                  const qty = parseInt(e.target.value) || 1;
+                                  const limitedQty = availableStock > 0 ? Math.min(Math.max(1, qty), availableStock) : Math.max(1, qty);
                                   
-                                  if (targetWarehouseLower === "warehouse") {
-                                    availableStock = scanned.item.warehouseStocks.reduce((sum, ws) => {
-                                      const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
-                                      return sum + Math.max(0, stock);
-                                    }, 0);
-                                  } else {
-                                    const normalizedTargetWarehouse = mapLocNameToWarehouse(warehouse);
-                                    const normalizedTargetWarehouseLower = normalizedTargetWarehouse.toLowerCase().trim();
-                                    
-                                    const matchingStock = scanned.item.warehouseStocks.find(ws => {
-                                      if (!ws.warehouse) return false;
-                                      const normalizedStockWarehouse = mapLocNameToWarehouse(ws.warehouse.toString());
-                                      const stockWarehouse = normalizedStockWarehouse.toLowerCase().trim();
-                                      
-                                      return stockWarehouse === normalizedTargetWarehouseLower || 
-                                             stockWarehouse.includes(normalizedTargetWarehouseLower) ||
-                                             normalizedTargetWarehouseLower.includes(stockWarehouse);
-                                    });
-                                    
-                                    if (matchingStock) {
-                                      availableStock = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
-                                    }
+                                  if (availableStock > 0 && qty > availableStock) {
+                                    showStockAlert(`⚠️ Only ${availableStock.toFixed(2)} pcs available`, 'warning');
                                   }
-                                }
-                                
-                                // Limit to available stock
-                                const limitedQty = Math.min(Math.max(1, qty), availableStock);
-                                
-                                if (qty > availableStock) {
-                                  showStockAlert(`⚠️ Only ${availableStock.toFixed(2)} pcs available`, 'warning');
-                                }
-                                
-                                setBulkScannedItems(prev => {
-                                  const updated = [...prev];
-                                  updated[index] = {
-                                    ...updated[index],
-                                    quantity: limitedQty
-                                  };
-                                  return updated;
-                                });
-                              }}
-                              className="w-16 h-8 text-center border border-[#d1d5db] rounded text-sm focus:border-[#9ca3af] focus:outline-none focus:ring-1 focus:ring-[#9ca3af]"
-                              min="1"
-                            />
-                            <button
-                              onClick={() => {
-                                // Calculate available stock using same logic as display
-                                let availableStock = 0;
-                                if (warehouse && scanned.item.warehouseStocks && Array.isArray(scanned.item.warehouseStocks)) {
-                                  const targetWarehouseLower = warehouse.toLowerCase().trim();
                                   
-                                  if (targetWarehouseLower === "warehouse") {
-                                    availableStock = scanned.item.warehouseStocks.reduce((sum, ws) => {
-                                      const stock = parseFloat(ws.availableForSale) || parseFloat(ws.stockOnHand) || 0;
-                                      return sum + Math.max(0, stock);
-                                    }, 0);
-                                  } else {
-                                    const normalizedTargetWarehouse = mapLocNameToWarehouse(warehouse);
-                                    const normalizedTargetWarehouseLower = normalizedTargetWarehouse.toLowerCase().trim();
-                                    
-                                    const matchingStock = scanned.item.warehouseStocks.find(ws => {
-                                      if (!ws.warehouse) return false;
-                                      const normalizedStockWarehouse = mapLocNameToWarehouse(ws.warehouse.toString());
-                                      const stockWarehouse = normalizedStockWarehouse.toLowerCase().trim();
-                                      
-                                      return stockWarehouse === normalizedTargetWarehouseLower || 
-                                             stockWarehouse.includes(normalizedTargetWarehouseLower) ||
-                                             normalizedTargetWarehouseLower.includes(stockWarehouse);
-                                    });
-                                    
-                                    if (matchingStock) {
-                                      availableStock = parseFloat(matchingStock.availableForSale) || parseFloat(matchingStock.stockOnHand) || 0;
-                                    }
+                                  setBulkScannedItems(prev => {
+                                    const updated = [...prev];
+                                    updated[index] = {
+                                      ...updated[index],
+                                      quantity: limitedQty
+                                    };
+                                    return updated;
+                                  });
+                                }}
+                                className="w-16 h-8 text-center border border-[#d1d5db] rounded text-sm focus:border-[#9ca3af] focus:outline-none focus:ring-1 focus:ring-[#9ca3af]"
+                                min="1"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (availableStock > 0 && scanned.quantity >= availableStock) {
+                                    showStockAlert(`⚠️ Only ${availableStock.toFixed(2)} pcs available`, 'warning');
+                                    return;
                                   }
-                                }
-                                
-                                if (scanned.quantity >= availableStock) {
-                                  showStockAlert(`⚠️ Only ${availableStock.toFixed(2)} pcs available`, 'warning');
-                                  return;
-                                }
-                                
-                                setBulkScannedItems(prev => {
-                                  const updated = [...prev];
-                                  updated[index] = {
-                                    ...updated[index],
-                                    quantity: updated[index].quantity + 1
-                                  };
-                                  return updated;
-                                });
-                              }}
-                              className="w-8 h-8 flex items-center justify-center rounded-full border border-[#d1d5db] hover:bg-[#f3f4f6] transition-colors"
-                            >
-                              <span className="text-[#64748b]">+</span>
-                            </button>
+                                  
+                                  setBulkScannedItems(prev => {
+                                    const updated = [...prev];
+                                    updated[index] = {
+                                      ...updated[index],
+                                      quantity: updated[index].quantity + 1
+                                    };
+                                    return updated;
+                                  });
+                                }}
+                                className="w-8 h-8 flex items-center justify-center rounded-full border border-[#d1d5db] hover:bg-[#f3f4f6] transition-colors cursor-pointer"
+                              >
+                                <span className="text-[#64748b] font-bold">+</span>
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -4774,8 +5058,7 @@ const SalesPersonSelect = ({ label, placeholder, value, onChange, options = [], 
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
           disabled={disabled}
-          readOnly
-          className={`w-full h-[42px] rounded-none border px-3.5 pr-10 text-sm transition cursor-pointer ${
+          className={`w-full h-[42px] rounded-none border px-3.5 pr-10 text-sm transition ${
             open ? "border-[#8b5cf6]" : "border-[#e5e7eb]"
           } ${disabled ? "bg-[#f1f5f9] text-[#94a3b8] cursor-not-allowed" : "bg-white text-[#111827]"} placeholder:text-[#9ca3af] focus:outline-none`}
         />
@@ -4814,6 +5097,15 @@ const SalesPersonSelect = ({ label, placeholder, value, onChange, options = [], 
           
           {/* Options List */}
           <div className="max-h-48 overflow-y-auto">
+            {search.trim() && !options.some(opt => (typeof opt === 'string' ? opt : opt.name || opt.fullName).toLowerCase() === search.trim().toLowerCase()) && (
+              <div
+                className="px-4 py-2 text-sm bg-purple-50 text-[#8b5cf6] hover:bg-purple-100 cursor-pointer font-medium border-b border-[#e5e7eb] flex items-center justify-between"
+                onClick={() => handleOptionSelect(search.trim())}
+              >
+                <span>Select "<strong>{search.trim()}</strong>"</span>
+                <span className="text-[11px] bg-[#8b5cf6] text-white px-2 py-0.5 rounded font-normal">Use</span>
+              </div>
+            )}
             {filteredOptions.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-[#9ca3af]">
                 No sales persons found

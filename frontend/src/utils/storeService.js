@@ -3,6 +3,7 @@ import baseUrl from "../api/api";
 
 export const FALLBACK_STORES = [
   { locName: "Warehouse", locCode: "858", name: "Warehouse", label: "Warehouse", value: "858" },
+  { locName: "BridesBerry", locCode: "155", name: "BridesBerry", label: "BridesBerry", value: "155" },
 ];
 
 export const DISCARDED_LOC_CODES = new Set([
@@ -30,7 +31,7 @@ export const DISCARDED_NAME_PATTERNS = [
   "production", "office", "head office", "dappr squad",
   "z-edapally", "z-edappal", "z-perinthalmanna", "z-kottakkal",
   "suitorguy mg road", "mg road", "mgroad",
-  "brides berry", "brides berry ", "test store tranfer"
+  "test store tranfer"
 ];
 
 export const isAllowedStoreNameOrCode = (locCode, locName, isCustom = false) => {
@@ -42,8 +43,15 @@ export const isAllowedStoreNameOrCode = (locCode, locName, isCustom = false) => 
     return true;
   }
 
-  // Always allow Warehouse
-  if (code === "858" || code === "103" || name.includes("warehouse")) {
+  // Always allow Warehouse and BridesBerry
+  if (
+    code === "858" ||
+    code === "103" ||
+    code === "155" ||
+    name.includes("warehouse") ||
+    name.includes("bridesberry") ||
+    name.includes("brides berry")
+  ) {
     return true;
   }
 
@@ -258,6 +266,21 @@ export const fetchActiveStores = async () => {
         name: "Warehouse",
         label: "Warehouse",
         value: "858",
+        address: extra.address || "",
+        phone: extra.phone || "",
+        email: extra.email || ""
+      });
+      return;
+    }
+
+    // Normalizations for BridesBerry
+    if (code === "155" || rawName.toLowerCase().replace(/[\s\-_.]+/g, '') === "bridesberry") {
+      storeMap.set("155", {
+        locName: "BridesBerry",
+        locCode: "155",
+        name: "BridesBerry",
+        label: "BridesBerry",
+        value: "155",
         address: extra.address || "",
         phone: extra.phone || "",
         email: extra.email || ""

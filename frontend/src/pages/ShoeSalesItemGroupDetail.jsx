@@ -7,7 +7,15 @@ import AttachmentDisplay from "../components/AttachmentDisplay";
 import { mapLocNameToWarehouse as mapWarehouse } from "../utils/warehouseMapping";
 import baseUrl from "../api/api";
 import useSidebar from "../hooks/useSidebar";
-import { useActiveStores } from "../utils/storeService.js";
+
+// All warehouses/stores in the system - restricted to Warehouse and Brides Berry
+const ALL_WAREHOUSES = [
+  "Warehouse",
+  "Brides Berry",
+];
+
+// Compare store names ignoring spaces/case ("Brides Berry" === "BridesBerry")
+const compactName = (n) => (n || "").toString().toLowerCase().replace(/[\s.\-_]/g, "");
 
 const ShoeSalesItemGroupDetail = () => {
   const isSidebarOpen = useSidebar();
@@ -51,15 +59,26 @@ const ShoeSalesItemGroupDetail = () => {
                   user?.power === "admin" || 
                   (user?.locCode && (user.locCode === '858' || user.locCode === '103'));
   
-  const { stores: activeStores, warehouseOptions } = useActiveStores();
-
   // Fallback locations mapping
-  const fallbackLocations = activeStores && activeStores.length > 0
-    ? activeStores
-    : [
-        { "locName": "Warehouse", "locCode": "858" },
-        { "locName": "MG Road", "locCode": "718" }
-      ];
+  const fallbackLocations = [
+    { "locName": "Warehouse", "locCode": "858" },
+    { "locName": "G.Kottayam", "locCode": "701" },
+    { "locName": "G.Kannur", "locCode": "716" },
+    { "locName": "G.Calicut ", "locCode": "712" },
+    { "locName": "G.Manjeri", "locCode": "710" },
+    { "locName": "G.Thrissur", "locCode": "704" },
+    { "locName": "G.Perumbavoor", "locCode": "703" },
+    { "locName": "G.Palakkad ", "locCode": "705" },
+    { "locName": "G.Edappal", "locCode": "707" },
+    { "locName": "G-Edappally", "locCode": "702" },
+    { "locName": "SG-Trivandrum", "locCode": "700" },
+    { "locName": "G.Kalpetta", "locCode": "717" },
+    { "locName": "G.Chavakkad", "locCode": "706" },
+    { "locName": "G.Perinthalmanna", "locCode": "709" },
+    { "locName": "G.Kottakkal", "locCode": "711" },
+    { "locName": "Brides Berry", "locCode": "155" },
+    { "locName": "WAREHOUSE", "locCode": "103" }
+  ];
   
   // Get user's warehouse name
   const getUserWarehouse = () => {
@@ -76,15 +95,14 @@ const ShoeSalesItemGroupDetail = () => {
 
   // Initialize all warehouses list
   useEffect(() => {
-    const list = warehouseOptions && warehouseOptions.length > 0 ? warehouseOptions : ["Warehouse", "MG Road"];
     // Sort warehouses: "Warehouse" first, then alphabetically
-    const sortedWarehouses = [...list].sort((a, b) => {
+    const sortedWarehouses = [...ALL_WAREHOUSES].sort((a, b) => {
       if (a === "Warehouse") return -1;
       if (b === "Warehouse") return 1;
       return a.localeCompare(b);
     });
     setAllWarehouses(sortedWarehouses);
-  }, [warehouseOptions]);
+  }, []);
 
   useEffect(() => {
     const fetchItemGroup = async () => {
@@ -101,6 +119,9 @@ const ShoeSalesItemGroupDetail = () => {
         if (userWarehouse && userWarehouse !== "Warehouse") {
           queryParams.append('filterByWarehouse', 'true');
         }
+        // This page hosts the Opening Stock popup, which edits every warehouse,
+        // so it must load all warehouses' stock even when a store is selected.
+        queryParams.append('fullStock', 'true');
         
         const url = `${API_URL}/api/shoe-sales/item-groups/${id}?${queryParams.toString()}`;
         console.log(`📡 Fetching item group: ${url}`);
@@ -221,25 +242,9 @@ const ShoeSalesItemGroupDetail = () => {
     );
   }
 
-  // Helper to calculate stock for an item
-  const getItemStockOnHand = (item) => {
-    if (item.warehouseStocks && Array.isArray(item.warehouseStocks) && item.warehouseStocks.length > 0) {
-      if (userWarehouse && userWarehouse !== "Warehouse") {
-        const ws = item.warehouseStocks.find(w => (w.warehouse || "").toLowerCase().includes(userWarehouse.toLowerCase()));
-        return ws ? (parseFloat(ws.stockOnHand) || 0) : 0;
-      }
-      return item.warehouseStocks.reduce((total, ws) => total + (parseFloat(ws.stockOnHand) || 0), 0);
-    } else if (typeof item.stock === 'number') {
-      return item.stock;
-    } else if (item.stock) {
-      return parseFloat(item.stock) || 0;
-    }
-    return 0;
-  };
-
-  // Get items from the item group (saved items from database) - filter out inactive and 0-stock items
+  // Get items from the item group (saved items from database) - filter out inactive items
   const allItems = itemGroup.items && Array.isArray(itemGroup.items) ? itemGroup.items : [];
-  const items = allItems.filter(item => item.isActive !== false && getItemStockOnHand(item) > 0);
+  const items = allItems.filter(item => item.isActive !== false);
 
   // Calculate stock totals from items - sum of all item stocks
   // Example: If 9 items each have 10 stock, total = 90
@@ -293,18 +298,19 @@ const ShoeSalesItemGroupDetail = () => {
   const getOpeningStockDistribution = () => {
     const distribution = [];
     
-    const activeAllItems = allItems.filter(item => item.isActive !== false);
-    // Get warehouses that have stock data from items
+    // Only ever show the real, allowed warehouses. Any other name found in the
+    // data (e.g. "ridesBerry Branch", "rynex Admin Branch", "arehouse" - corrupted
+    // leftovers, or old MG Road) is ignored so it never appears as a fake branch.
+    const allowedList = allWarehouses.length > 0 ? allWarehouses : ALL_WAREHOUSES;
+    const allowedKeys = new Set(allowedList.map(compactName));
+
+    // Get warehouses that have stock data from items (restricted to allowed ones)
     const warehousesWithStock = new Set();
-    activeAllItems.forEach(item => {
+    items.forEach(item => {
       if (item.warehouseStocks && Array.isArray(item.warehouseStocks)) {
         item.warehouseStocks.forEach(ws => {
-          if (ws.warehouse) {
-            // Filter out corrupted warehouse names
-            const warehouseName = ws.warehouse.toString().trim();
-            if (warehouseName !== "arehouse Branch" && warehouseName !== "arehouse") {
-              warehousesWithStock.add(ws.warehouse);
-            }
+          if (ws.warehouse && allowedKeys.has(compactName(ws.warehouse))) {
+            warehousesWithStock.add(ws.warehouse);
           }
         });
       }
@@ -313,10 +319,16 @@ const ShoeSalesItemGroupDetail = () => {
     // Combine all warehouses from the system with warehouses that have stock
     // This ensures we show all stores, even if they don't have stock yet
     const warehousesToShow = allWarehouses.length > 0 ? allWarehouses : ALL_WAREHOUSES;
-    const allWarehousesSet = new Set([
-      ...warehousesToShow,
-      ...warehousesWithStock
-    ]);
+    // Merge, de-duplicating names that differ only by spacing/case (e.g. "BridesBerry" vs "Brides Berry")
+    const seen = new Set();
+    const allWarehousesSet = new Set();
+    [...warehousesToShow, ...warehousesWithStock].forEach(wh => {
+      const key = compactName(wh);
+      if (!seen.has(key)) {
+        seen.add(key);
+        allWarehousesSet.add(wh);
+      }
+    });
     // Sort: "Warehouse" first, then alphabetically
     const sortedWarehouses = Array.from(allWarehousesSet).sort((a, b) => {
       if (a === "Warehouse") return -1;
@@ -325,7 +337,7 @@ const ShoeSalesItemGroupDetail = () => {
     });
     
     // Process each item
-    activeAllItems.forEach(item => {
+    items.forEach(item => {
       const itemName = item.name || "Unnamed Item";
       // For group items, create a SKU from the item name or use existing SKU
       let itemSku = "N/A";
@@ -362,8 +374,8 @@ const ShoeSalesItemGroupDetail = () => {
           return warehouseName !== "arehouse Branch" && warehouseName !== "arehouse";
         })
         .map(warehouse => {
-        const ws = itemWarehouseStocks.find(ws => 
-          ws.warehouse && ws.warehouse.toString().trim() === warehouse.toString().trim()
+        const ws = itemWarehouseStocks.find(ws =>
+          ws.warehouse && compactName(ws.warehouse) === compactName(warehouse)
         );
         
         // Get monthly opening stock if available
@@ -383,11 +395,11 @@ const ShoeSalesItemGroupDetail = () => {
           if (isCurrentMonth) {
             // Current month: use actual stockOnHand (source of truth) instead of closingStock
             // This ensures we always show the real current stock, even if monthly entry is out of sync
-            const actualStock = ws ? (parseFloat(ws.stockOnHand) || 0) : 0;
             const monthlyClosingStock = parseFloat(monthlyEntry.closingStock) || 0;
-            
-            // Use actual stock if it differs from monthly closing stock (monthly entry might be outdated)
-            openingStock = actualStock > 0 ? actualStock : monthlyClosingStock;
+            const hasActual = ws && ws.stockOnHand !== undefined && ws.stockOnHand !== null;
+
+            // stockOnHand is the source of truth - 0 is a valid value and must not fall back to old monthly data
+            openingStock = hasActual ? (parseFloat(ws.stockOnHand) || 0) : monthlyClosingStock;
             
             // Calculate value as quantity × selling price
             openingStockValue = openingStock * itemSellingPrice;
@@ -534,7 +546,9 @@ const ShoeSalesItemGroupDetail = () => {
         if (userWarehouse && userWarehouse !== "Warehouse") {
           queryParams.append('filterByWarehouse', 'true');
         }
-        
+        // Reload full warehouse stock so saved values in all warehouses stay visible.
+        queryParams.append('fullStock', 'true');
+
         const url = `${API_URL}/api/shoe-sales/item-groups/${id}?${queryParams.toString()}`;
         const res = await fetch(url);
         if (res.ok) {

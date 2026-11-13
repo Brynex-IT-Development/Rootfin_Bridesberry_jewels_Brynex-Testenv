@@ -42,6 +42,7 @@ const transferOrderSchema = new mongoose.Schema(
         quantity: Number,
         sourceQuantity: Number,
         destQuantity: Number,
+        mrp: Number,
       },
     ],
     

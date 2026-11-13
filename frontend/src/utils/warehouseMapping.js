@@ -112,6 +112,13 @@ export const mapLocNameToWarehouse = (locName) => {
     "Warehouse": "Warehouse",
     "warehouse": "Warehouse",
     "WAREHOUSE": "Warehouse",
+
+    // BridesBerry variations
+    "BridesBerry": "Brides Berry",
+    "bridesberry": "Brides Berry",
+    "Brides Berry": "Brides Berry",
+    "brides berry": "Brides Berry",
+    "Bridesberry": "Brides Berry",
     
     // Head Office variations
     "HEAD OFFICE01": "Head Office",

@@ -8,6 +8,8 @@ const mapLocNameToWarehouse = (locName) => {
   if (!locName) return "Warehouse";
 
   const locNameLower = locName.toLowerCase().trim();
+  if (locNameLower.includes("warehouse")) return "Warehouse";
+  if (locNameLower.replace(/[\s\-_.]+/g, "").includes("bridesberry")) return "BridesBerry";
   if (
     locNameLower === "z-edapally1" ||
     locNameLower === "zedapallyadmin" ||
@@ -555,7 +557,8 @@ export const updatePurchaseOrder = async (req, res) => {
         targetWarehouse = "Warehouse";
       } else {
         const fallbackLocations = [
-          { "locName": "Warehouse", "locCode": "858" }
+          { "locName": "Warehouse", "locCode": "858" },
+          { "locName": "BridesBerry", "locCode": "155" }
         ];
 
         const userLocCode = orderData.locCode || purchaseOrder.locCode || "";

@@ -4280,6 +4280,9 @@ const TransferOrderCreate = () => {
           quantity: parseFloat(row.quantity) || 0,
           sourceQuantity: row.sourceQuantity || 0,
           destQuantity: row.destQuantity || 0,
+          mrp: row.item?.mrp !== undefined && row.item?.mrp !== null && String(row.item.mrp).trim() !== ""
+            ? (parseFloat(row.item.mrp) || 0)
+            : (row.mrp !== undefined && row.mrp !== null && String(row.mrp).trim() !== "" ? (parseFloat(row.mrp) || 0) : 0),
         }));
 
       const transferData = {

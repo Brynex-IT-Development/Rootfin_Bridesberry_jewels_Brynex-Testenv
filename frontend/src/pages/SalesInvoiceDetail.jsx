@@ -168,8 +168,32 @@ const SalesInvoiceDetail = () => {
 
   // Store locations for mapping user store
   const fallbackLocations = [
+    { locName: "Z-Edapally1", locCode: "144" },
     { locName: "Warehouse", locCode: "858" },
-    { locName: "MG Road", locCode: "718" },
+    { locName: "G-Edappally", locCode: "702" },
+    { locName: "HEAD OFFICE01", locCode: "759" },
+    { locName: "SG-Trivandrum", locCode: "700" },
+    { locName: "Z- Edappal", locCode: "100" },
+    { locName: "Z.Perinthalmanna", locCode: "133" },
+    { locName: "Z.Kottakkal", locCode: "122" },
+    { locName: "G.Kottayam", locCode: "701" },
+    { locName: "G.Perumbavoor", locCode: "703" },
+    { locName: "G.Thrissur", locCode: "704" },
+    { locName: "G.Chavakkad", locCode: "706" },
+    { locName: "G.Calicut ", locCode: "712" },
+    { locName: "G.Vadakara", locCode: "708" },
+    { locName: "G.Edappal", locCode: "707" },
+    { locName: "G.Perinthalmanna", locCode: "709" },
+    { locName: "G.Kottakkal", locCode: "711" },
+    { locName: "G.Manjeri", locCode: "710" },
+    { locName: "G.Palakkad ", locCode: "705" },
+    { locName: "G.Kalpetta", locCode: "717" },
+    { locName: "G.Kannur", locCode: "716" },
+    { locName: "G.Mg Road", locCode: "718" },
+    { locName: "Production", locCode: "101" },
+    { locName: "Office", locCode: "102" },
+    { locName: "WAREHOUSE", locCode: "103" },
+    { locName: "Dappr Squad", locCode: "555" },
   ];
 
   const getUserStoreDetails = (user) => {
@@ -604,7 +628,8 @@ const SalesInvoiceDetail = () => {
       `Invoice Date: ${formatDate(invoice.invoiceDate)}\n` +
       `Customer: ${invoice.customer}\n` +
       `Phone: ${invoice.customerPhone || 'Not provided'}\n` +
-      `Branch: ${invoice.branch}\n\n` +
+      `Branch: ${invoice.branch}\n` +
+      (invoice.salesperson ? `Attended By: ${invoice.salesperson}\n\n` : `\n`) +
       `Sub Total: ₹${parseFloat(invoice.subTotal || 0).toLocaleString('en-IN')}\n` +
       `Total Amount: ₹${parseFloat(invoice.finalTotal || 0).toLocaleString('en-IN')}\n\n` +
       `Status: ${invoice.status?.toUpperCase() || 'SENT'}\n` +
@@ -1079,10 +1104,10 @@ const SalesInvoiceDetail = () => {
                     </div>
                     <div>
                       <span className="text-[10px] font-bold text-[#6B7280] uppercase tracking-wider block">
-                        Sales Person
+                        Attended By / Sales Person
                       </span>
                       <span className="font-semibold text-[#111827]">
-                        {invoice.salesperson || "NIYAS"}
+                        {invoice.salesperson || invoice.createdBy || "N/A"}
                       </span>
                     </div>
                   </div>

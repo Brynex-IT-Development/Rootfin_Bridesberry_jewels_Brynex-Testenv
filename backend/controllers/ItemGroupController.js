@@ -172,7 +172,7 @@ const generateChangeDetails = (oldItem, newItem, changeType) => {
     }
   } else {
     // General field changes
-    const fieldsToCheck = ['name', 'sku', 'costPrice', 'sellingPrice', 'stock', 'reorderPoint'];
+    const fieldsToCheck = ['name', 'sku', 'costPrice', 'sellingPrice', 'mrp', 'stock', 'reorderPoint'];
     fieldsToCheck.forEach(field => {
       if (oldItem?.[field] !== newItem?.[field]) {
         const oldVal = oldItem?.[field] ?? '';
@@ -587,7 +587,7 @@ export const getItemGroups = async (req, res) => {
         }
         return sum;
       }, 0);
-
+      
       const itemCount = isViewingSpecificStore ? relevantItems.length : itemsArray.length;
       
       return {
@@ -634,7 +634,10 @@ export const getItemGroups = async (req, res) => {
 export const getItemGroupById = async (req, res) => {
   try {
     const { id } = req.params;
-    const { warehouse, isAdmin, filterByWarehouse } = req.query;
+    const { warehouse, isAdmin, filterByWarehouse, fullStock } = req.query;
+    // fullStock=true returns every warehouse's stock untouched (used by the
+    // Opening Stock distribution popup, which edits all warehouses at once).
+    const wantFullStock = fullStock === 'true' || fullStock === true;
 
     if (!id) {
       return res.status(400).json({ message: "Item group ID is required." });
@@ -656,7 +659,7 @@ export const getItemGroupById = async (req, res) => {
     const isMainWarehouse = !warehouse || warehouse === "Warehouse" || warehouse === "Warehouse Branch" || warehouse === "WAREHOUSE" || warehouse === "All Stores";
     
     // When viewing for a specific store/branch, update each item's stock to reflect that store's stock
-    if (warehouse && !isMainWarehouse && groupObj.items && Array.isArray(groupObj.items)) {
+    if (warehouse && !isMainWarehouse && !wantFullStock && groupObj.items && Array.isArray(groupObj.items)) {
       const storeItems = groupObj.items.filter(item => {
         if (!item.warehouseStocks || !Array.isArray(item.warehouseStocks)) return false;
         return item.warehouseStocks.some(ws => matchesWarehouse(ws.warehouse, warehouse));
@@ -1008,27 +1011,66 @@ export const updateItemGroup = async (req, res) => {
     }
 
     // Sync updated item SKU and details to bills
+    // Only sync items that were actually updated (or the specific itemId if provided)
     try {
       if (itemGroup && Array.isArray(itemGroup.items)) {
-        for (const item of itemGroup.items) {
-          const gItemId = (item._id || item.id)?.toString();
-          const gItemSku = item.sku?.trim();
-          if (gItemId && gItemSku) {
-            await Bill.updateMany(
-              { "items.itemId": gItemId },
-              {
-                $set: {
-                  "items.$[elem].itemSku": gItemSku,
-                  "items.$[elem].sku": gItemSku,
-                  ...(item.name ? { "items.$[elem].itemName": item.name } : {}),
-                  ...(item.hsnCode ? { "items.$[elem].hsnCode": item.hsnCode } : {}),
-                  ...(item.itemCode ? { "items.$[elem].itemCode": item.itemCode } : {}),
-                  ...(item.returnable !== undefined ? { "items.$[elem].returnable": item.returnable } : {})
-                }
-              },
-              { arrayFilters: [{ "elem.itemId": gItemId }] }
-            );
+        let itemsToSync = [];
+        const itemId = req.body.itemId;
+
+        if (itemId) {
+          // If a specific item was edited, only sync that item
+          const targetItem = itemGroup.items.find(i => {
+            const idStr = (i._id?.toString() || i.id || "").toString();
+            return idStr === itemId.toString();
+          });
+          if (targetItem && (targetItem.sku?.trim() || targetItem.name)) {
+            itemsToSync.push(targetItem);
           }
+        } else {
+          // Compare with oldItemGroup to find items whose bill-relevant fields actually changed
+          const oldItemsMap = new Map();
+          (oldItemGroup?.items || []).forEach(oi => {
+            const idStr = (oi._id?.toString() || oi.id || "").toString();
+            if (idStr) oldItemsMap.set(idStr, oi);
+          });
+
+          itemsToSync = itemGroup.items.filter(item => {
+            const idStr = (item._id?.toString() || item.id || "").toString();
+            const oldItem = oldItemsMap.get(idStr);
+            if (!oldItem) return !!item.sku?.trim(); // New item
+            return (
+              item.sku !== oldItem.sku ||
+              item.name !== oldItem.name ||
+              item.hsnCode !== oldItem.hsnCode ||
+              item.itemCode !== oldItem.itemCode ||
+              item.returnable !== oldItem.returnable
+            );
+          });
+        }
+
+        if (itemsToSync.length > 0) {
+          // Sync bills asynchronously in parallel without blocking the response
+          Promise.all(itemsToSync.map(async (item) => {
+            const gItemId = (item._id || item.id)?.toString();
+            const gItemSku = item.sku?.trim();
+            if (gItemId) {
+              await Bill.updateMany(
+                { "items.itemId": gItemId },
+                {
+                  $set: {
+                    ...(gItemSku ? { "items.$[elem].itemSku": gItemSku, "items.$[elem].sku": gItemSku } : {}),
+                    ...(item.name ? { "items.$[elem].itemName": item.name } : {}),
+                    ...(item.hsnCode ? { "items.$[elem].hsnCode": item.hsnCode } : {}),
+                    ...(item.itemCode ? { "items.$[elem].itemCode": item.itemCode } : {}),
+                    ...(item.returnable !== undefined ? { "items.$[elem].returnable": item.returnable } : {})
+                  }
+                },
+                { arrayFilters: [{ "elem.itemId": gItemId }] }
+              );
+            }
+          })).catch(err => {
+            console.warn("Async bill sync error on item group update:", err.message);
+          });
         }
       }
     } catch (billSyncErr) {
@@ -1108,8 +1150,14 @@ export const saveMonthlyOpeningStock = async (req, res) => {
           itemPlain.warehouseStocks = [];
         }
 
-        let wsEntry = itemPlain.warehouseStocks.find(ws => 
+        // Match ignoring spaces/case/punctuation so "Warehouse" finds "warehouse " and
+        // "Brides Berry" finds "BridesBerry" (same matching as the frontend display)
+        const compactName = (n) => (n || "").toString().toLowerCase().replace(/[\s.\-_]/g, "");
+        const targetKey = compactName(itemUpdate.warehouse);
+        let wsEntry = itemPlain.warehouseStocks.find(ws =>
           ws.warehouse && ws.warehouse.toString().trim() === itemUpdate.warehouse.toString().trim()
+        ) || itemPlain.warehouseStocks.find(ws =>
+          ws.warehouse && compactName(ws.warehouse) === targetKey
         );
 
         if (!wsEntry) {
@@ -1164,8 +1212,10 @@ export const saveMonthlyOpeningStock = async (req, res) => {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         const isCurrentMonth = month === currentMonth;
         
-        // If previous month exists and current opening stock is 0, carry forward closing stock
-        if (prevMonthlyEntry && (!itemUpdate.openingStock || parseFloat(itemUpdate.openingStock) === 0)) {
+        // Carry forward previous month's closing stock only when no value was sent.
+        // An explicit 0 is a valid value (e.g. all stock transferred out) and must be saved as 0.
+        const noValueSent = itemUpdate.openingStock === undefined || itemUpdate.openingStock === null || itemUpdate.openingStock === "";
+        if (prevMonthlyEntry && noValueSent) {
           monthlyEntry.openingStock = prevMonthlyEntry.closingStock || 0;
           monthlyEntry.openingStockValue = prevMonthlyEntry.closingStockValue || 0;
         } else {
@@ -1475,7 +1525,7 @@ export const addItemsToGroup = async (req, res) => {
             itemCode: standalone.itemCode || "",
             costPrice: standalone.costPrice || 0,
             sellingPrice: standalone.sellingPrice || 0,
-            mrp: standalone.mrp || standalone.sellingPrice || 0,
+            mrp: standalone.mrp || 0,
             hsnCode: standalone.hsnCode || "",
             size: standalone.size || "",
             unit: standalone.unit || "PCS",
@@ -1522,7 +1572,7 @@ export const addItemsToGroup = async (req, res) => {
           itemCode: it.itemCode || "",
           costPrice: parseFloat(it.costPrice) || 0,
           sellingPrice: parseFloat(it.sellingPrice) || 0,
-          mrp: parseFloat(it.mrp) || parseFloat(it.sellingPrice) || 0,
+          mrp: parseFloat(it.mrp) || 0,
           hsnCode: it.hsnCode || "",
           size: it.size || "",
           unit: it.unit || "PCS",

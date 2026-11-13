@@ -7,8 +7,6 @@ import { MdCurrencyRupee } from "react-icons/md";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { Helmet } from "react-helmet";
 import { useSidebar } from "../hooks/useSidebar.js";
-import AssignTargetModal from "../components/AssignTargetModal.jsx";
-import { useActiveStores, FALLBACK_STORES } from "../utils/storeService.js";
 
 const baseExpenseCats = [
   { value: "dry cleaning",          label: "Dry Cleaning",           subs: ["Dry cleaning"] },
@@ -37,15 +35,8 @@ const baseExpenseCats = [
 const Expenses = () => {
   const isSidebarOpen = useSidebar();
   const currentusers = JSON.parse(localStorage.getItem("rootfinuser")) || {};
-  const isAdmin = (currentusers.power || "").toLowerCase() === "admin" || (currentusers.role || "").toLowerCase() === "admin";
-  const isSuperAdmin = (currentusers.role || "").toLowerCase() === "superadmin";
-  const canSelectStore = isAdmin || isSuperAdmin;
   const cats = baseExpenseCats;
-  const { stores } = useActiveStores();
-  const availableStores = stores && stores.length > 0 ? stores : FALLBACK_STORES;
 
-  const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
-  const [selectedStore, setSelectedStore] = useState(currentusers.locCode || "858");
   const [selectedCategory, setSelectedCategory] = useState(cats[0]);
   const [subCategory, setSubCategory] = useState("");
   const [amount, setAmount] = useState("");
@@ -101,8 +92,7 @@ const Expenses = () => {
       category: selectedCategory.value,
       subCategory: subCategory || undefined,
       remark,
-      locCode: canSelectStore ? selectedStore : currentusers.locCode,
-      isAdminLevel: canSelectStore,
+      locCode: currentusers.locCode,
       amount: `-${amount}`,
       cash: splitPayment ? `-${cashAmount || "0"}` : paymentMethod === "cash" ? `-${amount}` : "0",
       bank: splitPayment ? `-${bankAmount || "0"}` : paymentMethod === "bank" ? `-${amount}` : "0",
@@ -167,62 +157,18 @@ const Expenses = () => {
         >
           <div className="p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
             {/* Page Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">
-                  Expenses
-                </h1>
-                <p className="text-sm text-gray-500 mt-1">
-                  Record &amp; Track your business transactions
-                </p>
-              </div>
-              {canSelectStore && (
-                <button
-                  type="button"
-                  onClick={() => setIsTargetModalOpen(true)}
-                  className="px-5 py-2.5 rounded-lg bg-[#0a142f] text-white text-sm font-medium hover:bg-[#162548] transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
-                >
-                  Set Expense Limit
-                </button>
-              )}
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">
+                Expenses
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Record &amp; Track your business transactions
+              </p>
             </div>
-
-            <AssignTargetModal
-              isOpen={isTargetModalOpen}
-              onClose={() => setIsTargetModalOpen(false)}
-              cats={cats}
-              fallbackLocations={availableStores}
-              currentusers={currentusers}
-            />
 
             {/* Main Form Card */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200/80 p-6 md:p-8">
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Admin Store Dropdown */}
-                {canSelectStore && (
-                  <div className="flex flex-col gap-1.5 w-full md:w-1/2">
-                    <label className="text-xs font-semibold text-gray-600 tracking-wide uppercase">
-                      Store
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedStore}
-                        onChange={(e) => setSelectedStore(e.target.value)}
-                        className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 shadow-sm pr-10 transition-all"
-                      >
-                        {availableStores.map((s) => (
-                          <option key={s.locCode} value={s.locCode}>
-                            {s.locName || s.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown
-                        size={18}
-                        className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400"
-                      />
-                    </div>
-                  </div>
-                )}
                 {/* Row 1: Category + Amount */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Category */}

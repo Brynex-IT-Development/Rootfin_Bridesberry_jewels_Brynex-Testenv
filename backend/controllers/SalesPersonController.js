@@ -1,5 +1,6 @@
 import SalesPerson from "../model/SalesPerson.js";
 import Store from "../model/Store.js";
+import User from "../model/UserModel.js";
 import mongoose from "mongoose";
 
 // Create a new sales person
@@ -23,15 +24,38 @@ export const createSalesPerson = async (req, res) => {
       salesPersonData.email = `${salesPersonData.employeeId}@placeholder.com`;
     }
     
-    if (!mongoose.Types.ObjectId.isValid(salesPersonData.storeId)) {
-      return res.status(400).json({ message: "Invalid store ID" });
+    // Resolve store: check if storeId is valid ObjectId, or find by locCode / name
+    let store = null;
+    if (salesPersonData.storeId && mongoose.Types.ObjectId.isValid(salesPersonData.storeId)) {
+      store = await Store.findById(salesPersonData.storeId);
     }
-    
-    const store = await Store.findById(salesPersonData.storeId);
+    const targetLocCode = salesPersonData.locCode || (typeof salesPersonData.storeId === 'string' && !mongoose.Types.ObjectId.isValid(salesPersonData.storeId) ? salesPersonData.storeId : null);
+    if (!store && targetLocCode) {
+      store = await Store.findOne({ locCode: targetLocCode });
+    }
+    if (!store && salesPersonData.storeName) {
+      store = await Store.findOne({ name: salesPersonData.storeName });
+    }
     if (!store) {
-      return res.status(404).json({ message: "Store not found" });
+      // Auto-create store if it's a known or new location code
+      const code = targetLocCode || "858";
+      const name = salesPersonData.storeName || (code === "858" ? "Warehouse" : code === "155" ? "BridesBerry" : `Store ${code}`);
+      try {
+        store = await Store.findOneAndUpdate(
+          { locCode: code },
+          { name, locCode: code, isActive: true },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } catch (err) {
+        store = await Store.findOne({ locCode: code });
+      }
+    }
+
+    if (!store) {
+      return res.status(404).json({ message: "Store not found or could not be initialized" });
     }
     
+    salesPersonData.storeId = store._id;
     salesPersonData.locCode = store.locCode;
     const salesPerson = await SalesPerson.create(salesPersonData);
     const salesPersonWithStore = await SalesPerson.findById(salesPerson._id).populate('storeId');
@@ -100,14 +124,25 @@ export const getSalesPersonsByLocCode = async (req, res) => {
     const { locCode } = req.params;
     const { isActive } = req.query;
     
-    const store = await Store.findOne({ locCode });
+    let store = await Store.findOne({ locCode });
     if (!store) {
-      return res.status(404).json({ 
-        message: `Store with location code "${locCode}" not found` 
-      });
+      // Try to auto-create store if it's Warehouse, BridesBerry, or a valid locCode
+      const name = locCode === "858" ? "Warehouse" : locCode === "155" ? "BridesBerry" : `Store ${locCode}`;
+      try {
+        store = await Store.findOneAndUpdate(
+          { locCode },
+          { name, locCode, isActive: true },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } catch (err) {
+        store = await Store.findOne({ locCode });
+      }
     }
     
-    const filter = { storeId: store._id };
+    const filter = store 
+      ? { $or: [{ storeId: store._id }, { locCode: locCode }] }
+      : { locCode: locCode };
+
     if (isActive !== undefined) {
       filter.isActive = isActive === 'true';
     }
@@ -115,15 +150,46 @@ export const getSalesPersonsByLocCode = async (req, res) => {
     const salesPersons = await SalesPerson.find(filter)
       .populate('storeId')
       .sort({ firstName: 1, lastName: 1 });
+
+    const combinedSalesPersons = salesPersons.map(sp => sp.toObject());
+
+    // Also include store users with this locCode so store staff automatically appear
+    try {
+      const storeUsers = await User.find({ locCode }).lean();
+      if (storeUsers && storeUsers.length > 0) {
+        for (const u of storeUsers) {
+          const username = (u.username || "").trim();
+          const alreadyExists = combinedSalesPersons.some(sp => 
+            (sp.firstName || "").toLowerCase() === username.toLowerCase() ||
+            (`${sp.firstName || ""} ${sp.lastName || ""}`).trim().toLowerCase() === username.toLowerCase()
+          );
+          if (!alreadyExists && username) {
+            combinedSalesPersons.push({
+              _id: u._id,
+              id: u._id.toString(),
+              firstName: username,
+              lastName: "",
+              employeeId: u.locCode ? `${u.locCode}-${username}` : username,
+              phone: u.phone || "",
+              email: u.email || "",
+              locCode: u.locCode || locCode,
+              isActive: true,
+            });
+          }
+        }
+      }
+    } catch (uErr) {
+      console.warn("Could not query store users for sales persons:", uErr.message);
+    }
     
     res.status(200).json({
-      message: `Sales persons for ${store.name} (${locCode}) retrieved successfully`,
+      message: `Sales persons for ${store?.name || locCode} (${locCode}) retrieved successfully`,
       store: {
-        id: store._id,
-        name: store.name,
-        locCode: store.locCode,
+        id: store?._id || locCode,
+        name: store?.name || (locCode === "858" ? "Warehouse" : locCode === "155" ? "BridesBerry" : `Store ${locCode}`),
+        locCode: store?.locCode || locCode,
       },
-      salesPersons: salesPersons.map(sp => sp.toObject()),
+      salesPersons: combinedSalesPersons,
     });
   } catch (error) {
     console.error("Get sales persons by locCode error:", error);

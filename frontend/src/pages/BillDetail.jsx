@@ -227,19 +227,16 @@ const BillDetail = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Get user info
+        // Get user info for sidebar
         const userStr = localStorage.getItem("rootfinuser");
         const user = userStr ? JSON.parse(userStr) : null;
         const userId = user?._id || user?.id || user?.email || user?.locCode || null;
         const locCode = user?.locCode || "";
-
-        if (!userId) {
-          navigate("/purchase/bills");
-          return;
-        }
 
         // Fetch the specific bill
         const billResponse = await fetch(`${API_URL}/api/purchase/bills/${id}`);
@@ -250,37 +247,54 @@ const BillDetail = () => {
         }
         const billData = await billResponse.json();
         console.log("Bill data loaded:", billData);
-        setBill(billData);
+        if (isMounted) setBill(billData);
 
-        // Fetch vendor if vendorId exists
-        if (billData.vendorId) {
-          try {
-            const vendorResponse = await fetch(`${API_URL}/api/purchase/vendors/${billData.vendorId}`);
-            if (vendorResponse.ok) {
-              const vendorData = await vendorResponse.json();
-              setVendor(vendorData);
+        // Fetch vendor if vendorId exists (non-blocking)
+        if (billData?.vendorId) {
+          fetch(`${API_URL}/api/purchase/vendors/${billData.vendorId}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(vendorData => {
+              if (vendorData && isMounted) setVendor(vendorData);
+            })
+            .catch(error => {
+              console.error("Error fetching vendor:", error);
+            });
+        }
+
+        // Fetch all bills for sidebar (non-blocking)
+        const sidebarUrl = userId
+          ? `${API_URL}/api/purchase/bills?userId=${encodeURIComponent(userId)}${locCode ? `&locCode=${encodeURIComponent(locCode)}` : ""}`
+          : `${API_URL}/api/purchase/bills`;
+
+        fetch(sidebarUrl)
+          .then(res => res.ok ? res.json() : [])
+          .then(billsData => {
+            if (Array.isArray(billsData) && isMounted) {
+              setBills(billsData);
             }
-          } catch (error) {
-            console.error("Error fetching vendor:", error);
-          }
-        }
+          })
+          .catch(err => {
+            console.error("Error fetching sidebar bills:", err);
+          });
 
-        // Fetch all bills for sidebar
-        const billsResponse = await fetch(`${API_URL}/api/purchase/bills?userId=${userId}${locCode ? `&locCode=${locCode}` : ""}`);
-        if (billsResponse.ok) {
-          const billsData = await billsResponse.json();
-          setBills(Array.isArray(billsData) ? billsData : []);
-        }
       } catch (error) {
         console.error("Error loading bill:", error);
-        navigate("/purchase/bills");
+        if (isMounted) setBill(null);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
-    fetchData();
-  }, [id, navigate, API_URL]);
+    if (id) {
+      fetchData();
+    } else {
+      setLoading(false);
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id, API_URL]);
 
   if (loading) {
     return (

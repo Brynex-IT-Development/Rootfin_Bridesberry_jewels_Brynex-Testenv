@@ -116,6 +116,15 @@ const getAllowedActualNames = () => {
   return Array.from(actualNames);
 };
 
+// Match a name to an allowed display name ignoring spaces/case ("Brides Berry" === "BridesBerry")
+const compactName = (n) => (n || "").toString().toLowerCase().replace(/[\s.\-_]/g, "");
+const matchAllowedWarehouse = (displayName, allowedList) => {
+  if (!displayName) return null;
+  if (allowedList.includes(displayName)) return displayName;
+  const key = compactName(displayName);
+  return allowedList.find(a => compactName(a) === key) || null;
+};
+
 // Helper function to normalize warehouse name to display name
 const normalizeWarehouseName = (warehouseName) => {
   if (!warehouseName) return null;
@@ -353,13 +362,47 @@ const ShoeSalesItemDetailFromGroup = () => {
   // Get user info for filtering
   const userStr = localStorage.getItem("rootfinuser");
   const user = userStr ? JSON.parse(userStr) : null;
-  // User is admin if: power === 'admin' OR locCode === '858' (Warehouse) OR locCode === '103' (WAREHOUSE) OR email === 'officerootments@gmail.com'
-  const userEmail = user?.email || user?.username || "";
-  const adminEmails = ['officerootments@gmail.com'];
-  const isAdminEmail = userEmail && adminEmails.some(email => userEmail.toLowerCase() === email.toLowerCase());
-  const isAdmin = isAdminEmail ||
-                  user?.power === "admin" || 
-                  (user?.locCode && (user.locCode === '858' || user.locCode === '103'));
+  const userRole = (user?.role || "").toLowerCase().trim();
+  const userPower = (user?.power || "").toLowerCase().trim();
+  const userEmail = (user?.email || user?.username || "").toLowerCase().trim();
+  const userLocCode = (user?.locCode || "").toString().trim();
+
+  const adminEmails = [
+    'officerootments@gmail.com', 
+    'brynex@gmail.com',
+    'operationsrootments@gmail.com',
+    'headoffice01@gmail.com'
+  ];
+
+  const isAdmin = 
+    adminEmails.includes(userEmail) ||
+    userPower === "admin" ||
+    userPower === "super_admin" ||
+    userRole === "admin" ||
+    userRole === "superadmin";
+
+  const isWarehouse = 
+    userPower === "warehouse" || 
+    ['858', '103'].includes(userLocCode);
+
+  const isClusterAdmin = !isAdmin && (
+    userRole === "cluster_manager" || 
+    userRole === "cluster_admin" || 
+    userRole.includes("cluster")
+  );
+
+  const isStoreAdmin = !isAdmin && !isWarehouse && (
+    userRole === "store_manager" || 
+    userRole === "store_admin" || 
+    userRole === "store_user" || 
+    Boolean(user?.storeName) || 
+    Boolean(user?.storeId) || 
+    (userLocCode && !['858', '103', '759', '101', '102'].includes(userLocCode)) || 
+    userEmail.includes("bridesberry") || 
+    (user?.username || "").toLowerCase().includes("bridesberry")
+  );
+
+  const canAccessAdminRestrictedModules = (isAdmin || isWarehouse) && !isClusterAdmin;
   
   // Fallback locations mapping (same as other pages)
   const fallbackLocations = getActiveStores();
@@ -406,9 +449,12 @@ const ShoeSalesItemDetailFromGroup = () => {
       itemWarehouseStocks.forEach(stock => {
         if (stock.warehouse) {
           // Normalize the warehouse name to display name
-          const displayName = normalizeWarehouseName(stock.warehouse);
+          const displayName = matchAllowedWarehouse(
+            normalizeWarehouseName(stock.warehouse) || stock.warehouse,
+            ALLOWED_WAREHOUSES_DISPLAY
+          );
           console.log(`   Normalizing "${stock.warehouse}" -> "${displayName}"`);
-          if (displayName && ALLOWED_WAREHOUSES_DISPLAY.includes(displayName)) {
+          if (displayName) {
             // Store with display name as key, but keep original stock data
             stockMap.set(displayName, {
               ...stock,
@@ -464,8 +510,11 @@ const ShoeSalesItemDetailFromGroup = () => {
       const stockMap = new Map();
       item.warehouseStocks.forEach(stock => {
         if (stock.warehouse) {
-          const displayName = normalizeWarehouseName(stock.warehouse);
-          if (displayName && ALLOWED_WAREHOUSES_DISPLAY.includes(displayName)) {
+          const displayName = matchAllowedWarehouse(
+            normalizeWarehouseName(stock.warehouse) || stock.warehouse,
+            ALLOWED_WAREHOUSES_DISPLAY
+          );
+          if (displayName) {
             stockMap.set(displayName, {
               ...stock,
               warehouse: displayName
@@ -1161,16 +1210,18 @@ const ShoeSalesItemDetailFromGroup = () => {
                       </div>
                       
                       <div className="py-0.5">
-                        <button
-                          onClick={() => {
-                            setShowInactiveModal(true);
-                            setShowMoreMenu(false);
-                          }}
-                          className="w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center gap-2.5 cursor-pointer"
-                        >
-                          <Pause size={14} className="text-[#6B7280]" />
-                          <span>Mark as Inactive</span>
-                        </button>
+                        {canAccessAdminRestrictedModules && (
+                          <button
+                            onClick={() => {
+                              setShowInactiveModal(true);
+                              setShowMoreMenu(false);
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center gap-2.5 cursor-pointer"
+                          >
+                            <Pause size={14} className="text-[#6B7280]" />
+                            <span>Mark as Inactive</span>
+                          </button>
+                        )}
                         
                         <button
                           onClick={() => {

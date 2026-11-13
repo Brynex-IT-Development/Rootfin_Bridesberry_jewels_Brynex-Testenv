@@ -25,7 +25,7 @@ const TransferOrderView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const API_URL = baseUrl?.baseUrl?.replace(/\/$/, "") || "http://localhost:7000";
-
+  
   // Get user info
   const userStr = localStorage.getItem("rootfinuser");
   const user = userStr ? JSON.parse(userStr) : null;
@@ -35,7 +35,7 @@ const TransferOrderView = () => {
   const isAdminEmail = userEmail && adminEmails.some(email => userEmail.toLowerCase() === email.toLowerCase());
   const isAdmin = isAdminEmail || user?.power === "admin";
   const isWarehouseUser = user?.power === "warehouse";
-
+  
   // Fallback locations mapping
   const fallbackLocations = [
     { "locName": "Z-Edapally1", "locCode": "144" },
@@ -65,7 +65,7 @@ const TransferOrderView = () => {
     { "locName": "Office", "locCode": "102" },
     { "locName": "WAREHOUSE", "locCode": "103" }
   ];
-
+  
   // Get location name - prioritize locCode lookup over username
   let userLocName = "";
   if (user?.locCode) {
@@ -96,7 +96,7 @@ const TransferOrderView = () => {
     if (orderWarehouseLower.includes(targetWarehouseLower) || targetWarehouseLower.includes(orderWarehouseLower)) return true;
     return false;
   };
-
+  
   const [transferOrder, setTransferOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showPdfView, setShowPdfView] = useState(true);
@@ -104,7 +104,7 @@ const TransferOrderView = () => {
   const [sourceStoreInfo, setSourceStoreInfo] = useState(null);
   const [destStoreInfo, setDestStoreInfo] = useState(null);
   const pdfRef = useRef(null);
-
+  
   // QR/Barcode scanning state
   const [showScanner, setShowScanner] = useState(false);
   const [scannedItems, setScannedItems] = useState({}); // { itemSku: { count: number, itemName: string, quantity: number } }
@@ -117,8 +117,8 @@ const TransferOrderView = () => {
   const scanTimeoutRef = useRef(null);
   const lastScannedCodeRef = useRef(""); // Track last scanned code to prevent duplicates
   const lastScanTimeRef = useRef(0); // Track last scan time for debouncing
-
-
+  
+  
   // Check if current user is the destination warehouse
   const isDestinationWarehouse = () => {
     if (!transferOrder || !userLocName) {
@@ -128,58 +128,58 @@ const TransferOrderView = () => {
     const userWarehouse = mapLocNameToWarehouse(userLocName);
     const destinationWarehouse = transferOrder.destinationWarehouse || "";
     const mappedDestinationWarehouse = mapLocNameToWarehouse(destinationWarehouse);
-
+    
     console.log(`🔍 isDestinationWarehouse check:`);
     console.log(`   userLocName: "${userLocName}"`);
     console.log(`   userWarehouse (mapped): "${userWarehouse}"`);
     console.log(`   destinationWarehouse (raw): "${destinationWarehouse}"`);
     console.log(`   destinationWarehouse (mapped): "${mappedDestinationWarehouse}"`);
     console.log(`   Match (mapped): ${userWarehouse.toLowerCase().trim() === mappedDestinationWarehouse.toLowerCase().trim()}`);
-
+    
     // Case-insensitive comparison with trimming
     return userWarehouse.toLowerCase().trim() === mappedDestinationWarehouse.toLowerCase().trim() ||
-      userWarehouse.toLowerCase().trim() === destinationWarehouse.toLowerCase().trim() ||
-      userLocName.toLowerCase().trim() === destinationWarehouse.toLowerCase().trim();
+           userWarehouse.toLowerCase().trim() === destinationWarehouse.toLowerCase().trim() ||
+           userLocName.toLowerCase().trim() === destinationWarehouse.toLowerCase().trim();
   };
-
+  
   const canReceive = () => {
     if (!transferOrder || transferOrder.status !== "in_transit" || !isDestinationWarehouse()) {
       return false;
     }
-
+    
     // Check if all items have been scanned
     if (!transferOrder.items || transferOrder.items.length === 0) {
       return false;
     }
-
+    
     // Verify all items are scanned with correct quantities
     for (const item of transferOrder.items) {
       const itemSku = item.itemSku || item.itemId || "";
       const expectedQuantity = parseFloat(item.quantity) || 0;
       const scanned = scannedItems[itemSku];
-
+      
       if (!scanned || scanned.count < expectedQuantity) {
         return false;
       }
     }
-
+    
     return true;
   };
-
+  
   // Handle external scanner input (keyboard wedge devices)
   const handleExternalScannerInput = (e) => {
     // Clear any existing timeout
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
     }
-
+    
     const char = e.key;
-
+    
     // If Enter key is pressed, process the scanned code
     if (char === "Enter") {
       e.preventDefault();
       const scannedCode = scannedCodeBufferRef.current.trim();
-
+      
       if (scannedCode.length > 0) {
         handleScannedCode(scannedCode);
         scannedCodeBufferRef.current = "";
@@ -190,15 +190,15 @@ const TransferOrderView = () => {
       }
       return;
     }
-
+    
     // Ignore special keys (Shift, Ctrl, Alt, etc.)
     if (char.length > 1) {
       return;
     }
-
+    
     // Append character to buffer
     scannedCodeBufferRef.current += char;
-
+    
     // Set a timeout to reset buffer if no activity (handles slow typing vs fast scanning)
     scanTimeoutRef.current = setTimeout(() => {
       scannedCodeBufferRef.current = "";
@@ -219,7 +219,7 @@ const TransferOrderView = () => {
       externalScannerInputRef.current.value = "";
     }
   };
-
+  
   // Stop scanner
   const stopScanner = async () => {
     try {
@@ -228,14 +228,14 @@ const TransferOrderView = () => {
         html5QrCodeRef.current.clear();
         html5QrCodeRef.current = null;
       }
-
+      
       // Clear external scanner buffer and timeout
       scannedCodeBufferRef.current = "";
       if (scanTimeoutRef.current) {
         clearTimeout(scanTimeoutRef.current);
         scanTimeoutRef.current = null;
       }
-
+      
       setShowScanner(false);
       setScanError("");
       setScanSuccess("");
@@ -243,26 +243,26 @@ const TransferOrderView = () => {
       console.error("Error stopping scanner:", err);
     }
   };
-
+  
   // Handle scanned code
   const handleScannedCode = (scannedCode) => {
     console.log(`📱 Scanned code: "${scannedCode}"`);
-
+    
     // Debounce: Ignore scans within 500ms of the same code
     const now = Date.now();
     if (scannedCode === lastScannedCodeRef.current && now - lastScanTimeRef.current < 500) {
       console.log(`⏭️ Ignoring duplicate scan (debounced)`);
       return;
     }
-
+    
     lastScannedCodeRef.current = scannedCode;
     lastScanTimeRef.current = now;
-
+    
     if (!transferOrder || !transferOrder.items) {
       setScanError("No items in transfer order");
       return;
     }
-
+    
     // Find matching item by SKU or itemId — with fallback fuzzy matching
     const matchedItem = transferOrder.items.find(item => {
       const itemSku = (item.itemSku || "").toString().trim();
@@ -299,65 +299,65 @@ const TransferOrderView = () => {
 
       return false;
     });
-
+    
     if (!matchedItem) {
       setScanError(`Item not found in transfer order: ${scannedCode}`);
       setTimeout(() => setScanError(""), 3000);
       console.log(`❌ Item not found: "${scannedCode}"`);
       return;
     }
-
+    
     const itemSku = matchedItem.itemSku || matchedItem.itemId || "";
     const expectedQuantity = parseFloat(matchedItem.quantity) || 0;
-
+    
     // Use functional update to ensure we have the latest state
     setScannedItems(prev => {
       const currentScanned = prev[itemSku] || { count: 0, itemName: matchedItem.itemName, quantity: expectedQuantity };
-
+      
       if (currentScanned.count >= expectedQuantity) {
         setScanError(`${matchedItem.itemName} already scanned (${currentScanned.count}/${expectedQuantity})`);
         setTimeout(() => setScanError(""), 3000);
         console.log(`⚠️ Already scanned: ${matchedItem.itemName}`);
         return prev; // Don't update state
       }
-
+      
       // Update scanned count
       const newCount = currentScanned.count + 1;
-
+      
       setScanSuccess(`✅ Scanned: ${matchedItem.itemName} (${newCount}/${expectedQuantity})`);
       setTimeout(() => setScanSuccess(""), 2000);
-
+      
       console.log(`✅ Scanned successfully: ${matchedItem.itemName} (${newCount}/${expectedQuantity})`);
       console.log(`📷 Scanner should remain open for next scan`);
-
+      
       // Refocus external scanner input for next scan
       setTimeout(() => {
         if (externalScannerInputRef.current) {
           externalScannerInputRef.current.focus();
         }
       }, 100);
-
+      
       // Play beep sound (optional)
       try {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
-
+        
         oscillator.connect(gainNode);
         gainNode.connect(audioContext.destination);
-
+        
         oscillator.frequency.value = 800;
         oscillator.type = "sine";
-
+        
         gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-
+        
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.1);
       } catch (e) {
         // Ignore audio errors
       }
-
+      
       // Return updated state
       return {
         ...prev,
@@ -368,26 +368,26 @@ const TransferOrderView = () => {
       };
     });
   };
-
+  
   // Reset scanned items
   const resetScannedItems = () => {
     setScannedItems({});
     setScanError("");
     setScanSuccess("");
   };
-
+  
   // Cleanup scanner on unmount
   useEffect(() => {
     return () => {
       if (html5QrCodeRef.current) {
-        html5QrCodeRef.current.stop().catch(() => { });
+        html5QrCodeRef.current.stop().catch(() => {});
       }
       if (scanTimeoutRef.current) {
         clearTimeout(scanTimeoutRef.current);
       }
     };
   }, []);
-
+  
   // Format date
   const formatDate = (date) => {
     if (!date) return "-";
@@ -402,7 +402,7 @@ const TransferOrderView = () => {
       return "-";
     }
   };
-
+  
   // Fetch transfer order
   useEffect(() => {
     const fetchTransferOrder = async () => {
@@ -431,7 +431,7 @@ const TransferOrderView = () => {
         }
 
         setTransferOrder(data);
-
+        
         // Fetch store information for source and destination
         if (data.sourceWarehouse) {
           fetchStoreInfo(data.sourceWarehouse, 'source');
@@ -447,7 +447,7 @@ const TransferOrderView = () => {
         setLoading(false);
       }
     };
-
+    
     const fetchStoreInfo = async (warehouseName, type) => {
       try {
         // Fetch all users/stores
@@ -455,29 +455,29 @@ const TransferOrderView = () => {
         if (response.ok) {
           const data = await response.json();
           const stores = data.users || [];
-
+          
           // Find matching store by warehouse name
           const store = stores.find(s => {
             const storeName = (s.username || '').toLowerCase().trim();
             const searchName = (warehouseName || '').toLowerCase().trim();
-
+            
             // Remove common prefixes for matching
             const storeBase = storeName.replace(/^[a-z]{1,2}[.\-]\s*/i, '').trim();
             const searchBase = searchName.replace(/^[a-z]{1,2}[.\-]\s*/i, '').trim();
-
+            
             // Try exact match first
             if (storeName === searchName) return true;
-
+            
             // Try base name match
             if (storeBase === searchBase) return true;
-
+            
             // Try partial match
             if (storeName.includes(searchName) || searchName.includes(storeName)) return true;
             if (storeBase.includes(searchBase) || searchBase.includes(storeBase)) return true;
-
+            
             return false;
           });
-
+          
           if (store) {
             if (type === 'source') {
               setSourceStoreInfo(store);
@@ -490,12 +490,12 @@ const TransferOrderView = () => {
         console.error(`Error fetching ${type} store info:`, error);
       }
     };
-
+    
     if (id) {
       fetchTransferOrder();
     }
   }, [id, API_URL, navigate, shouldEnforceStoreContext, userWarehouse]);
-
+  
   const handlePrint = async () => {
     if (!pdfRef.current || !transferOrder) return;
 
@@ -503,7 +503,7 @@ const TransferOrderView = () => {
       // Dynamically import html2pdf to handle module loading
       const html2pdfModule = await import("html2pdf.js");
       const html2pdf = html2pdfModule.default || html2pdfModule;
-
+      
       const element = pdfRef.current;
       const opt = {
         margin: [10, 10, 10, 10],
@@ -796,7 +796,7 @@ const TransferOrderView = () => {
     if (oldFrame) {
       try {
         oldFrame.parentNode.removeChild(oldFrame);
-      } catch (e) { }
+      } catch (e) {}
     }
 
     const iframe = document.createElement("iframe");
@@ -820,11 +820,11 @@ const TransferOrderView = () => {
         await Promise.all(
           imgs.map((img) =>
             img.complete
-              ? (img.decode ? img.decode().catch(() => { }) : Promise.resolve())
+              ? (img.decode ? img.decode().catch(() => {}) : Promise.resolve())
               : new Promise((resolve) => {
-                img.onload = () => (img.decode ? img.decode().then(resolve).catch(resolve) : resolve());
-                img.onerror = resolve;
-              })
+                  img.onload = () => (img.decode ? img.decode().then(resolve).catch(resolve) : resolve());
+                  img.onerror = resolve;
+                })
           )
         );
 
@@ -849,32 +849,111 @@ const TransferOrderView = () => {
     iframe.srcdoc = htmlContent;
   };
 
+  // Helper to ensure catalog items are loaded on demand for the items being printed
+  const getCatalogForItems = async (itemsToPrint) => {
+    let currentCatalog = Array.isArray(catalogItems) ? [...catalogItems] : [];
+
+    // If catalog is empty, fetch the catalog immediately
+    if (currentCatalog.length === 0) {
+      try {
+        const response = await fetch(`${API_URL}/api/shoe-sales/items?page=1&limit=10000`);
+        if (response.ok) {
+          const data = await response.json();
+          const itemsList = Array.isArray(data) ? data : (data.items || data.data || []);
+          if (itemsList.length > 0) {
+            currentCatalog = itemsList;
+            setCatalogItems(itemsList);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading catalog items on demand:", err);
+      }
+    }
+
+    // For any item in itemsToPrint that is still not matched in currentCatalog, fetch directly
+    const itemsNeedingLookup = (itemsToPrint || []).filter(item => {
+      const itemSkuNorm = String(item.itemSku || "").trim().toLowerCase();
+      const itemIdNorm = String(item.itemId || "").trim().toLowerCase();
+      return !currentCatalog.some(c => {
+        const cSku = String(c.sku || "").trim().toLowerCase();
+        const cId = String(c._id || c.id || "").trim().toLowerCase();
+        if (itemSkuNorm && cSku && itemSkuNorm === cSku) return true;
+        if (itemIdNorm && cId && itemIdNorm === cId) return true;
+        return false;
+      });
+    });
+
+    if (itemsNeedingLookup.length > 0) {
+      const directFetches = await Promise.all(
+        itemsNeedingLookup.map(async (m) => {
+          try {
+            if (m.itemId) {
+              const res = await fetch(`${API_URL}/api/shoe-sales/items/${m.itemId}`);
+              if (res.ok) return await res.json();
+            }
+            if (m.itemSku) {
+              const res = await fetch(`${API_URL}/api/shoe-sales/items?search=${encodeURIComponent(m.itemSku)}`);
+              if (res.ok) {
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : (data.items || data.data || []);
+                const exactSku = list.find(it => String(it.sku || "").trim().toLowerCase() === String(m.itemSku || "").trim().toLowerCase());
+                if (exactSku) return exactSku;
+                if (list.length > 0) return list[0];
+              }
+            }
+          } catch (e) {
+            console.error("Error fetching single item detail for print:", e);
+          }
+          return null;
+        })
+      );
+
+      const validDirect = directFetches.filter(Boolean);
+      if (validDirect.length > 0) {
+        currentCatalog = [...currentCatalog, ...validDirect];
+        setCatalogItems(currentCatalog);
+      }
+    }
+
+    return currentCatalog;
+  };
+
   // Build tag items list for printing (100% matched to Bills.jsx barcode layout)
-  const buildTagItemsForItems = (itemsList) => {
+  const buildTagItemsForItems = (itemsList, activeCatalog = catalogItems) => {
     const tagItems = [];
+    const catalogSource = Array.isArray(activeCatalog) && activeCatalog.length > 0 ? activeCatalog : catalogItems;
 
     for (const item of itemsList) {
       const itemSkuNorm = String(item.itemSku || "").trim().toLowerCase();
       const itemIdNorm = String(item.itemId || "").trim().toLowerCase();
       const itemNameNorm = String(item.itemName || "").trim().toLowerCase();
 
-      // Find in catalogItems
-      const matched = catalogItems.find((c) => {
-        const cSku = String(c.sku || "").trim().toLowerCase();
-        const cId = String(c._id || c.id || "").trim().toLowerCase();
-        const cName = String(c.itemName || c.name || "").trim().toLowerCase();
-        if (itemSkuNorm && cSku && itemSkuNorm === cSku) return true;
-        if (itemIdNorm && cId && itemIdNorm === cId) return true;
-        if (itemNameNorm && cName && itemNameNorm === cName) return true;
-        return false;
-      });
+      // Find in catalog items: ALWAYS match by unique SKU or ID first!
+      const matched =
+        (catalogSource || []).find((c) => {
+          const cSku = String(c.sku || "").trim().toLowerCase();
+          const cId = String(c._id || c.id || "").trim().toLowerCase();
+          if (itemSkuNorm && cSku && itemSkuNorm === cSku) return true;
+          if (itemIdNorm && cId && itemIdNorm === cId) return true;
+          return false;
+        }) ||
+        (!itemSkuNorm && !itemIdNorm
+          ? (catalogSource || []).find((c) => {
+              const cName = String(c.itemName || c.name || "").trim().toLowerCase();
+              return itemNameNorm && cName && itemNameNorm === cName;
+            })
+          : null);
 
-      const resolvedMrp =
-        matched?.mrp !== undefined && matched?.mrp !== null && matched?.mrp !== ""
-          ? parseFloat(matched.mrp)
-          : (matched?.sellingPrice !== undefined && matched?.sellingPrice !== null && matched?.sellingPrice !== ""
-            ? parseFloat(matched.sellingPrice)
-            : (parseFloat(item.mrp || item.rate || 0) || 0));
+      // Strictly show MRP only. Never show or fallback to sellingPrice or cost rate.
+      const rawMrp =
+        matched?.mrp !== undefined && matched?.mrp !== null && String(matched.mrp).trim() !== ""
+          ? matched.mrp
+          : (item?.mrp !== undefined && item?.mrp !== null && String(item.mrp).trim() !== ""
+              ? item.mrp
+              : 0);
+
+      const parsedMrp = parseFloat(rawMrp);
+      const resolvedMrp = !isNaN(parsedMrp) && parsedMrp >= 0 ? parsedMrp : 0;
 
       const uiItemCode = (
         matched?.itemCode ||
@@ -912,13 +991,16 @@ const TransferOrderView = () => {
   };
 
   // Direct print barcode for all items in this transfer order (like in Bills page)
-  const handlePrintAllBarcodes = () => {
+  const handlePrintAllBarcodes = async () => {
     if (!transferOrder || !transferOrder.items || transferOrder.items.length === 0) {
       alert("No items in this transfer order to print.");
       return;
     }
 
-    const tagItems = buildTagItemsForItems(transferOrder.items);
+    showTagToast("Preparing barcode labels...", "loading");
+
+    const activeCatalog = await getCatalogForItems(transferOrder.items);
+    const tagItems = buildTagItemsForItems(transferOrder.items, activeCatalog);
     if (tagItems.length === 0) {
       alert("No items found to generate barcodes.");
       return;
@@ -930,10 +1012,13 @@ const TransferOrderView = () => {
   };
 
   // Direct print barcode for a single item row (like in Bills page)
-  const handlePrintSingleItemBarcode = (item) => {
+  const handlePrintSingleItemBarcode = async (item) => {
     if (!item) return;
 
-    const tagItems = buildTagItemsForItems([item]);
+    showTagToast("Preparing barcode label...", "loading");
+
+    const activeCatalog = await getCatalogForItems([item]);
+    const tagItems = buildTagItemsForItems([item], activeCatalog);
     if (tagItems.length === 0) {
       alert("Could not generate barcode for this item.");
       return;
@@ -958,11 +1043,11 @@ const TransferOrderView = () => {
       alert("You can only receive transfer orders that are in transit and destined to your warehouse.");
       return;
     }
-
+    
     if (!confirm("Are you sure you want to receive this transfer order? This will update the stock in your warehouse.")) {
       return;
     }
-
+    
     setReceiving(true);
     try {
       const response = await fetch(`${API_URL}/api/inventory/transfer-orders/${id}/receive`, {
@@ -973,28 +1058,28 @@ const TransferOrderView = () => {
           "x-user-name": user?.username || user?.name || user?.email || "",
         },
       });
-
+      
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to receive transfer order");
       }
-
+      
       const data = await response.json();
-
+      
       // Show detailed stock update information
       if (data.stockUpdates && Array.isArray(data.stockUpdates)) {
         const successful = data.stockUpdates.filter(u => u.status === "success");
         const failed = data.stockUpdates.filter(u => u.status !== "success");
-
+        
         let message = `Transfer order received successfully!\n\n${successful.length} items updated in ${transferOrder.destinationWarehouse}:\n\n`;
-
+        
         // Show individual breakdown if <= 5 items, or summary for large orders (e.g. 150 items)
         if (successful.length <= 5) {
           successful.forEach(update => {
             const stockBefore = update.stockBefore !== undefined ? update.stockBefore : null;
             const stockAfter = update.stockAfter !== undefined ? update.stockAfter : null;
             const received = update.quantity || 0;
-
+            
             if (stockBefore !== null && stockAfter !== null && stockBefore !== undefined && stockAfter !== undefined) {
               message += `✅ ${update.itemName}:\n`;
               message += `   Previous stock: ${stockBefore}\n`;
@@ -1007,7 +1092,7 @@ const TransferOrderView = () => {
         } else {
           message += `✅ Total ${successful.length} products added to stock.\n`;
         }
-
+        
         if (failed.length > 0) {
           message += `\n⚠️ Failed to update (${failed.length} items):\n`;
           failed.slice(0, 5).forEach(update => {
@@ -1018,36 +1103,36 @@ const TransferOrderView = () => {
             message += `...and ${failed.length - 5} more items.\n`;
           }
         }
-
+        
         message += `\n📦 Items are now available in your Items page.`;
-
+        
         alert(message);
       } else {
         alert("Transfer order received successfully! Stock has been updated.\n\n📦 Items are now available in your Items page.");
       }
-
+      
       // Stop scanner if active
       if (showScanner) {
         await stopScanner();
       }
-
+      
       // Reset scanned items
       resetScannedItems();
-
+      
       // Refresh the transfer order data
       const refreshResponse = await fetch(`${API_URL}/api/inventory/transfer-orders/${id}`);
       if (refreshResponse.ok) {
         const refreshedData = await refreshResponse.json();
         setTransferOrder(refreshedData);
       }
-
+      
       // Dispatch event to refresh items page if it's open
-      window.dispatchEvent(new CustomEvent('transferOrderReceived', {
-        detail: { destinationWarehouse: transferOrder.destinationWarehouse }
+      window.dispatchEvent(new CustomEvent('transferOrderReceived', { 
+        detail: { destinationWarehouse: transferOrder.destinationWarehouse } 
       }));
     } catch (error) {
       console.error("Error receiving transfer order:", error);
-
+      
       // Fallback check: if network timed out or failed to fetch, check if the server completed it
       try {
         const checkResponse = await fetch(`${API_URL}/api/inventory/transfer-orders/${id}`);
@@ -1059,8 +1144,8 @@ const TransferOrderView = () => {
               await stopScanner();
             }
             resetScannedItems();
-            window.dispatchEvent(new CustomEvent('transferOrderReceived', {
-              detail: { destinationWarehouse: checkData.destinationWarehouse }
+            window.dispatchEvent(new CustomEvent('transferOrderReceived', { 
+              detail: { destinationWarehouse: checkData.destinationWarehouse } 
             }));
             alert(`Transfer order was received and updated successfully on the server!\n\n📦 Items are now available in ${checkData.destinationWarehouse}.`);
             return;
@@ -1069,13 +1154,13 @@ const TransferOrderView = () => {
       } catch (checkErr) {
         console.warn("Fallback order status check failed:", checkErr);
       }
-
+      
       alert(`Failed to receive transfer order: ${error.message}`);
     } finally {
       setReceiving(false);
     }
   };
-
+  
   if (loading) {
     return (
       <div className={`transition-all duration-300 p-6 bg-[#f5f7fb] min-h-screen flex items-center justify-center ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
@@ -1083,7 +1168,7 @@ const TransferOrderView = () => {
       </div>
     );
   }
-
+  
   if (!transferOrder) {
     return (
       <div className={`transition-all duration-300 p-6 bg-[#f5f7fb] min-h-screen flex items-center justify-center ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
@@ -1099,10 +1184,10 @@ const TransferOrderView = () => {
       </div>
     );
   }
-
+  
   const totalQuantity = transferOrder.items?.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0) || 0;
   const statusLabel = transferOrder.status === "transferred" ? "Transferred" : transferOrder.status === "in_transit" ? "In Transit" : "Draft";
-
+  
   return (
     <div className={`transition-all duration-300 min-h-screen bg-[#f5f7fb] p-6 ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
       {/* Top Bar with Actions */}
@@ -1185,13 +1270,13 @@ const TransferOrderView = () => {
           </button>
         </div>
       </div>
-
+      
       {/* Document View */}
       {showPdfView && (
         <div ref={pdfRef} className="bg-white rounded-lg shadow-lg border border-[#e2e8f0] overflow-hidden print:shadow-none print:border-0" style={{ maxWidth: '210mm', margin: '0 auto', position: 'relative' }}>
           {/* Status Banner - Diagonal Overlay (Top Left) */}
           {transferOrder.status === "transferred" && (
-            <div
+            <div 
               className="absolute top-0 left-0 bg-[#10b981] text-white px-16 py-2 text-xs font-bold uppercase tracking-wider shadow-lg z-10"
               style={{
                 transform: 'rotate(-45deg)',
@@ -1205,7 +1290,7 @@ const TransferOrderView = () => {
             </div>
           )}
           {transferOrder.status === "in_transit" && (
-            <div
+            <div 
               className="absolute top-0 left-0 bg-[#3b82f6] text-white px-16 py-2 text-xs font-bold uppercase tracking-wider shadow-lg z-10"
               style={{
                 transform: 'rotate(-45deg)',
@@ -1218,12 +1303,12 @@ const TransferOrderView = () => {
               {statusLabel}
             </div>
           )}
-
+          
           <div className="p-10 print:p-8" style={{ paddingTop: '60px' }}>
             {/* Header */}
             <div className="mb-8">
               <h1 className="text-5xl font-bold text-[#111827] mb-6" style={{ letterSpacing: '0.01em', lineHeight: '1.2' }}>Transfer Order</h1>
-
+              
               <div className="space-y-2 text-sm">
                 <div>
                   <span className="font-semibold text-[#374151]">TransferOrder# </span>
@@ -1243,7 +1328,7 @@ const TransferOrderView = () => {
                 </div>
               </div>
             </div>
-
+            
             {/* Party Details Section - Two Columns */}
             <div className="mb-8 grid grid-cols-2 gap-4">
               {/* Source Warehouse */}
@@ -1268,7 +1353,7 @@ const TransferOrderView = () => {
                   )}
                 </div>
               </div>
-
+              
               {/* Destination Warehouse */}
               <div className="border border-[#d1d5db] rounded p-4 bg-[#fafafa]">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[#6b7280] mb-3">Destination Warehouse</h3>
@@ -1292,7 +1377,7 @@ const TransferOrderView = () => {
                 </div>
               </div>
             </div>
-
+            
             {/* Items Table */}
             <div className="mb-8">
               <table className="w-full border-collapse border border-[#d1d5db]">
@@ -1354,7 +1439,7 @@ const TransferOrderView = () => {
                 </tfoot>
               </table>
             </div>
-
+            
             {/* Footer Section */}
             <div className="grid grid-cols-2 gap-8 mt-8 pt-6 border-t border-[#d1d5db]">
               <div>
@@ -1373,7 +1458,7 @@ const TransferOrderView = () => {
           </div>
         </div>
       )}
-
+      
       {/* Non-PDF View (if toggle is off) */}
       {!showPdfView && (
         <div className="bg-white rounded-lg shadow-lg border border-[#e2e8f0] p-8">
@@ -1382,17 +1467,18 @@ const TransferOrderView = () => {
               <h1 className="text-2xl font-bold text-[#1e293b]">
                 Transfer Order: {transferOrder.transferOrderNumber}
               </h1>
-              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${transferOrder.status === "transferred"
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                transferOrder.status === "transferred"
                   ? "bg-[#ecfdf5] text-[#047857]"
                   : transferOrder.status === "in_transit"
-                    ? "bg-[#dbeafe] text-[#1e40af]"
-                    : "bg-[#f3f4f6] text-[#6b7280]"
-                }`}>
+                  ? "bg-[#dbeafe] text-[#1e40af]"
+                  : "bg-[#f3f4f6] text-[#6b7280]"
+              }`}>
                 {statusLabel}
               </span>
             </div>
           </div>
-
+          
           <div className="grid grid-cols-2 gap-6 mb-6">
             <div>
               <span className="text-sm font-semibold text-[#64748b]">Date: </span>
@@ -1411,7 +1497,7 @@ const TransferOrderView = () => {
               <span className="text-sm text-[#1e293b]">{transferOrder.destinationWarehouse || "-"}</span>
             </div>
           </div>
-
+          
           {/* Scanning Progress Section */}
           {transferOrder?.status === "in_transit" && isDestinationWarehouse() && (
             <div className="mb-6 p-4 bg-[#f0f9ff] border border-[#bae6fd] rounded-lg">
@@ -1431,7 +1517,7 @@ const TransferOrderView = () => {
                   const scanned = scannedItems[itemSku];
                   const scannedCount = scanned?.count || 0;
                   const isComplete = scannedCount >= expectedQuantity;
-
+                  
                   return (
                     <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-[#bae6fd]">
                       <div className="flex-1">
@@ -1467,7 +1553,7 @@ const TransferOrderView = () => {
               )}
             </div>
           )}
-
+          
           <div className="mb-6">
             <h3 className="text-sm font-semibold text-[#64748b] mb-3">Items</h3>
             <div className="border border-[#e2e8f0] rounded-lg overflow-hidden">
@@ -1488,16 +1574,16 @@ const TransferOrderView = () => {
                     const scannedCount = scanned?.count || 0;
                     const expectedQuantity = parseFloat(item.quantity) || 0;
                     const isComplete = scannedCount >= expectedQuantity;
-
+                    
                     return (
-                      <tr key={index} className="border-t border-[#e2e8f0]">
+                    <tr key={index} className="border-t border-[#e2e8f0]">
                         <td className="px-4 py-3 text-sm text-[#1e293b]">
                           <div>{item.itemName || "-"}</div>
                           {item.itemSku && (
                             <div className="text-xs text-[#64748b]">SKU: {item.itemSku}</div>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-right text-[#1e293b]">
+                      <td className="px-4 py-3 text-sm text-right text-[#1e293b]">
                           {expectedQuantity.toFixed(2)} pcs
                         </td>
                         {transferOrder?.status === "in_transit" && isDestinationWarehouse() && (
@@ -1507,16 +1593,16 @@ const TransferOrderView = () => {
                             ) : (
                               <span className="text-[#64748b]">{scannedCount}/{expectedQuantity}</span>
                             )}
-                          </td>
+                      </td>
                         )}
-                      </tr>
+                    </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
           </div>
-
+          
           {transferOrder.reason && (
             <div className="mb-4">
               <span className="text-sm font-semibold text-[#64748b]">Reason: </span>
@@ -1525,10 +1611,10 @@ const TransferOrderView = () => {
           )}
         </div>
       )}
-
+      
       {/* QR/Barcode Scanner Modal */}
       {showScanner && (
-        <div
+        <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
           onClick={(e) => {
             // Only close if clicking the backdrop, not the modal content
@@ -1537,7 +1623,7 @@ const TransferOrderView = () => {
             }
           }}
         >
-          <div
+          <div 
             className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1551,7 +1637,7 @@ const TransferOrderView = () => {
                   <X size={20} />
                 </button>
               </div>
-
+              
               {/* External Barcode Scanner Input */}
               <div className="mb-3">
                 <input
@@ -1566,19 +1652,19 @@ const TransferOrderView = () => {
                   📱 Click the input above and scan with your barcode scanner
                 </p>
               </div>
-
+              
               {scanSuccess && (
                 <div className="mb-2 p-2 bg-[#d1fae5] border border-[#10b981] rounded text-xs text-[#047857]">
                   {scanSuccess}
                 </div>
               )}
-
+              
               {scanError && (
                 <div className="mb-2 p-2 bg-[#fef3c7] border border-[#f59e0b] rounded text-xs text-[#92400e]">
                   <div className="font-semibold">{scanError}</div>
                 </div>
               )}
-
+              
               {/* Compact Scanning Progress */}
               <div className="mt-3">
                 <h3 className="text-xs font-semibold text-[#64748b] mb-1.5">Progress</h3>
@@ -1589,7 +1675,7 @@ const TransferOrderView = () => {
                     const scanned = scannedItems[itemSku];
                     const scannedCount = scanned?.count || 0;
                     const isComplete = scannedCount >= expectedQuantity;
-
+                    
                     return (
                       <div key={index} className="flex items-center justify-between p-1.5 bg-[#f8fafc] rounded border border-[#e2e8f0]">
                         <div className="flex-1 min-w-0">
@@ -1613,7 +1699,7 @@ const TransferOrderView = () => {
                   })}
                 </div>
               </div>
-
+              
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   onClick={resetScannedItems}
@@ -1636,14 +1722,15 @@ const TransferOrderView = () => {
       {/* Non-intrusive Zero-Touch Tag Print Toast Notification */}
       {tagPrintToast && createPortal(
         <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-150 pointer-events-none">
-          <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-2xl border text-xs font-semibold backdrop-blur-md ${tagPrintToast.type === "success"
+          <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-2xl border text-xs font-semibold backdrop-blur-md ${
+            tagPrintToast.type === "success"
               ? "bg-emerald-950/90 text-emerald-100 border-emerald-500/40"
               : tagPrintToast.type === "error"
-                ? "bg-rose-950/90 text-rose-100 border-rose-500/40"
-                : tagPrintToast.type === "loading"
-                  ? "bg-indigo-950/90 text-indigo-100 border-indigo-500/40"
-                  : "bg-slate-900/90 text-white border-slate-700"
-            }`}>
+              ? "bg-rose-950/90 text-rose-100 border-rose-500/40"
+              : tagPrintToast.type === "loading"
+              ? "bg-indigo-950/90 text-indigo-100 border-indigo-500/40"
+              : "bg-slate-900/90 text-white border-slate-700"
+          }`}>
             {tagPrintToast.type === "loading" && <Loader2 size={16} className="animate-spin text-emerald-400" />}
             {tagPrintToast.type === "success" && <Check size={16} className="text-emerald-400" />}
             {tagPrintToast.type === "error" && <X size={16} className="text-rose-400" />}

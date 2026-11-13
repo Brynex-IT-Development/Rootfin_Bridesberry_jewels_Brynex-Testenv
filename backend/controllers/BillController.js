@@ -9,8 +9,11 @@ import { updateMonthlyStockForPurchase } from "../utils/monthlyStockTracking.js"
 // Helper function to map locName to warehouse name (same as other controllers)
 const mapLocNameToWarehouse = (locName) => {
   if (!locName) return "Warehouse";
+  const lower = locName.toLowerCase().trim();
+  if (lower.includes("warehouse")) return "Warehouse";
+  if (lower.replace(/[\s\-_.]+/g, '').includes("bridesberry")) return "BridesBerry";
   // Remove prefixes like "G.", "Z.", "SG."
-  let warehouse = locName.replace(/^[A-Z]\.?\s*/i, "").trim();
+  let warehouse = locName.replace(/^(SG|G|Z)[\.\-\s]+/i, "").trim();
   // Add "Branch" if not already present and not "Warehouse"
   if (warehouse && warehouse.toLowerCase() !== "warehouse" && !warehouse.toLowerCase().includes("branch")) {
     warehouse = `${warehouse} Branch`;
@@ -1027,7 +1030,8 @@ export const createBill = async (req, res) => {
         } else if (!warehouseName) {
           // If warehouse not provided and not admin, determine from locCode
           const fallbackLocations = [
-            { "locName": "Warehouse", "locCode": "858" }
+            { "locName": "Warehouse", "locCode": "858" },
+            { "locName": "BridesBerry", "locCode": "155" }
           ];
           
           const userLocCode = billData.locCode || "";
@@ -1298,7 +1302,8 @@ export const updateBill = async (req, res) => {
     } else if (!warehouseName) {
       // If warehouse not provided and not admin, determine from locCode
        const fallbackLocations = [
-        { "locName": "Warehouse", "locCode": "858" }
+        { "locName": "Warehouse", "locCode": "858" },
+        { "locName": "BridesBerry", "locCode": "155" }
       ];
       
       const userLocCode = billData.locCode || existingBill.locCode || "";

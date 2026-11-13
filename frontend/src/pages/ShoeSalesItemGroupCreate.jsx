@@ -335,12 +335,13 @@ const ShoeSalesItemGroupCreate = () => {
             if (shouldUseAttributes) {
               // Items were generated from attributes
               const loadedItems = data.items.map(item => {
-                // Regenerate item name from attributeCombination to reflect any changes made in edit mode
+                // Preserve the saved item name from the database. Only fall back to auto-generating
+                // if the name is blank/empty.
                 let itemName = item.name || "";
-                if (item.attributeCombination && Array.isArray(item.attributeCombination) && item.attributeCombination.length > 0) {
-                  const optionsStr = item.attributeCombination.join("/");
+                if (!itemName && item.attributeCombination && Array.isArray(item.attributeCombination) && item.attributeCombination.length > 0) {
+                  const optionsStr = item.attributeCombination.filter(Boolean).join("/");
                   itemName = `${data.name || "Item"} - ${optionsStr}`;
-                  console.log(`Loading item: original name="${item.name}", regenerated name="${itemName}", attributeCombination=`, item.attributeCombination);
+                  console.log(`Loading item: name was empty, generated name="${itemName}"`);
                 }
                 
                 // Extract size from attributeCombination if size attribute exists
@@ -357,6 +358,7 @@ const ShoeSalesItemGroupCreate = () => {
                   size: sizeValue, // Include size
                   costPrice: item.costPrice !== undefined && item.costPrice !== null ? item.costPrice.toString() : "",
                   sellingPrice: item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice.toString() : "",
+                  mrp: item.mrp !== undefined && item.mrp !== null ? item.mrp.toString() : (item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice.toString() : ""),
                   upc: item.upc || "",
                   hsnCode: item.hsnCode || "",
                   isbn: item.isbn || "",
@@ -380,6 +382,7 @@ const ShoeSalesItemGroupCreate = () => {
                 sku: item.sku || "",
                 costPrice: item.costPrice !== undefined && item.costPrice !== null ? item.costPrice.toString() : "",
                 sellingPrice: item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice.toString() : "",
+                mrp: item.mrp !== undefined && item.mrp !== null ? item.mrp.toString() : (item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice.toString() : ""),
                 upc: item.upc || "",
                 hsnCode: item.hsnCode || "",
                 isbn: item.isbn || "",
@@ -546,6 +549,7 @@ const ShoeSalesItemGroupCreate = () => {
         size: existingItem?.size || sizeValue, // Store size
         costPrice: existingItem?.costPrice !== undefined && existingItem?.costPrice !== null ? existingItem.costPrice.toString() : "",
         sellingPrice: existingItem?.sellingPrice !== undefined && existingItem?.sellingPrice !== null ? existingItem.sellingPrice.toString() : "0",
+        mrp: existingItem?.mrp !== undefined && existingItem?.mrp !== null ? existingItem.mrp.toString() : (existingItem?.sellingPrice !== undefined && existingItem?.sellingPrice !== null ? existingItem.sellingPrice.toString() : "0"),
         upc: existingItem?.upc || "",
         hsnCode: existingItem?.hsnCode || "",
         isbn: existingItem?.isbn || "",
@@ -647,6 +651,7 @@ const ShoeSalesItemGroupCreate = () => {
           sku: "",
           costPrice: "",
           sellingPrice: "0",
+          mrp: "0",
           upc: "",
           hsnCode: "",
           isbn: "",
@@ -771,29 +776,40 @@ const ShoeSalesItemGroupCreate = () => {
         returnable,
         trackInventory: itemType === "goods",
         items: validItems.map(item => {
-          // Regenerate item name from attributeCombination before saving to ensure consistency
-          let itemName = item.name.trim();
+          let itemName = (item.name || "").trim();
+
+          // Only auto-generate name from attributes if:
+          // 1. The item name is empty, OR
+          // 2. It looks like it was previously auto-generated (matches "GroupName - attribute" pattern)
+          //    AND the user did NOT manually change it.
           if (createAttributes && item.attributeCombination && Array.isArray(item.attributeCombination) && item.attributeCombination.length > 0) {
-            const optionsStr = item.attributeCombination.join("/");
-            itemName = `${itemGroupName.trim()} - ${optionsStr}`;
+            const optionsStr = item.attributeCombination.filter(Boolean).join("/");
+            const autoName = optionsStr ? `${itemGroupName.trim()} - ${optionsStr}` : "";
+
+            if (!itemName || itemName === autoName) {
+              // Name is empty or exactly matches the auto-generated pattern → auto-generate
+              itemName = autoName || itemGroupName.trim();
+            }
+            // Otherwise, the user gave a custom name — preserve it.
           }
-          
+
           return {
-            _id: item._id && item._id.match(/^[0-9a-fA-F]{24}$/) ? item._id : undefined, // Only include _id if it's a valid MongoDB ObjectId
+            _id: item._id && item._id.match(/^[0-9a-fA-F]{24}$/) ? item._id : undefined,
             name: itemName,
             sku: item.sku || "",
-            size: item.size || "", // Include size field
+            size: item.size || "",
             costPrice: parseFloat(item.costPrice) || 0,
             sellingPrice: parseFloat(item.sellingPrice) || 0,
+            mrp: parseFloat(item.mrp) > 0 ? parseFloat(item.mrp) : (parseFloat(item.sellingPrice) || 0),
             upc: item.upc || "",
             hsnCode: item.hsnCode || "",
             isbn: item.isbn || "",
             reorderPoint: item.reorderPoint || "",
             sac: item.sac || "",
-            stock: parseFloat(item.stock) || 0, // Add stock field for each item
+            stock: parseFloat(item.stock) || 0,
             attributeCombination: item.attributeCombination || [],
-            returnable: null, // Items inherit returnable status from group
-            warehouseStocks: item.warehouseStocks || [], // PRESERVE warehouse stocks
+            returnable: null,
+            warehouseStocks: item.warehouseStocks || [],
           };
         }),
         stock: 0,
@@ -1350,6 +1366,17 @@ const ShoeSalesItemGroupCreate = () => {
                       </div>
                     </th>
                     <th className="px-3.5 py-3 text-left font-bold uppercase tracking-wider text-gray-700">
+                      <div>MRP (₹)</div>
+                      <div className="mt-1 flex gap-1.5 text-[10px] font-medium normal-case">
+                        <button 
+                          onClick={() => handleCopyToAll("mrp")}
+                          className="px-1.5 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/60 transition"
+                        >
+                          Copy to All
+                        </button>
+                      </div>
+                    </th>
+                    <th className="px-3.5 py-3 text-left font-bold uppercase tracking-wider text-gray-700">
                       <div>Price with GST (₹)</div>
                     </th>
                     <th className="px-3.5 py-3 text-left font-bold uppercase tracking-wider text-gray-700"></th>
@@ -1361,7 +1388,7 @@ const ShoeSalesItemGroupCreate = () => {
                       {itemRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={9}
+                            colSpan={10}
                             className="px-4 py-8 text-center text-sm font-medium text-gray-400"
                           >
                             No manual items configured
@@ -1469,6 +1496,22 @@ const ShoeSalesItemGroupCreate = () => {
                               onChange={(e) => {
                                 const updated = [...itemRows];
                                 updated[idx].sellingPrice = e.target.value;
+                                if (!updated[idx].mrp || updated[idx].mrp === "0") {
+                                  updated[idx].mrp = e.target.value;
+                                }
+                                setItemRows(updated);
+                              }}
+                              placeholder="0.00"
+                              className="w-full h-8 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-200 outline-none transition font-mono"
+                            />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <input
+                              type="text"
+                              value={item.mrp || ""}
+                              onChange={(e) => {
+                                const updated = [...itemRows];
+                                updated[idx].mrp = e.target.value;
                                 setItemRows(updated);
                               }}
                               placeholder="0.00"
@@ -1649,6 +1692,22 @@ const ShoeSalesItemGroupCreate = () => {
                             onChange={(e) => {
                               const updated = [...generatedItems];
                               updated[idx].sellingPrice = e.target.value;
+                              if (!updated[idx].mrp || updated[idx].mrp === "0") {
+                                updated[idx].mrp = e.target.value;
+                              }
+                              setGeneratedItems(updated);
+                            }}
+                            placeholder="0.00"
+                            className="w-full h-8 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-200 outline-none transition font-mono"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="text"
+                            value={item.mrp || ""}
+                            onChange={(e) => {
+                              const updated = [...generatedItems];
+                              updated[idx].mrp = e.target.value;
                               setGeneratedItems(updated);
                             }}
                             placeholder="0.00"
@@ -1699,7 +1758,7 @@ const ShoeSalesItemGroupCreate = () => {
                   ) : (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="px-4 py-8 text-center text-sm font-medium text-gray-400"
                       >
                         Please enter attributes and options to generate items.

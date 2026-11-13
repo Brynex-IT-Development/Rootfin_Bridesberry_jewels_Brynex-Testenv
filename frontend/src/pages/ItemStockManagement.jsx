@@ -5,10 +5,10 @@ import { X, Trash2, Plus, Copy, Package, Store, Check, ArrowLeft, Layers } from 
 import baseUrl from "../api/api";
 import useSidebar from "../hooks/useSidebar";
 
-// Warehouse names for the dropdown - restricted to Warehouse and MG Road
+// Warehouse names for the dropdown - restricted to Warehouse and Brides Berry
 const WAREHOUSES = [
   "Warehouse",
-  "MG Road"
+  "Brides Berry"
 ];
 
 const ItemStockManagement = () => {
@@ -185,31 +185,36 @@ const ItemStockManagement = () => {
       setLoading(true);
       const API_URL = baseUrl?.baseUrl?.replace(/\/$/, "") || "http://localhost:7000";
       
+      // Start from the existing entries so stock in other stores (not shown in this form) is preserved
       const byWarehouse = new Map();
-      
+      (item?.warehouseStocks || []).forEach(ws => {
+        if (ws && ws.warehouse) byWarehouse.set(ws.warehouse, { ...ws });
+      });
+
+      const setStock = (warehouse, qty) => {
+        const current = byWarehouse.get(warehouse) || { warehouse };
+        current.openingStock = qty;
+        current.openingStockValue = 0;
+        current.stockOnHand = qty;
+        current.availableForSale = qty;
+        current.physicalOpeningStock = qty;
+        current.physicalStockOnHand = qty;
+        current.physicalAvailableForSale = qty;
+        byWarehouse.set(warehouse, current);
+      };
+
+      // Editable warehouses removed from the form are set to 0
+      const formWarehouses = new Set(stockRows.map(r => r.warehouse).filter(Boolean));
+      WAREHOUSES.forEach(wh => {
+        if (byWarehouse.has(wh) && !formWarehouses.has(wh)) setStock(wh, 0);
+      });
+
       stockRows
         .filter(row => row.warehouse && row.warehouse.trim() !== "")
-        .forEach(row => {
-          const opening = parseFloat(row.openingStock) || 0;
-          const current = byWarehouse.get(row.warehouse) || { warehouse: row.warehouse };
+        .forEach(row => setStock(row.warehouse, parseFloat(row.openingStock) || 0));
 
-          if (!Number.isNaN(opening)) {
-            current.openingStock = opening;
-            current.openingStockValue = 0;
-            current.stockOnHand = opening;
-            current.availableForSale = opening;
-            current.physicalOpeningStock = opening;
-            current.physicalStockOnHand = opening;
-            current.physicalAvailableForSale = opening;
-          }
-
-          byWarehouse.set(row.warehouse, current);
-        });
-
-      const stockData = Array.from(byWarehouse.values()).filter(stock => {
-        const stockOnHand = parseFloat(stock.stockOnHand) || 0;
-        return stockOnHand > 0;
-      });
+      // Keep zero-stock entries: an empty list makes the backend restore the old stock
+      const stockData = Array.from(byWarehouse.values());
 
       const updatedItems = itemGroup.items.map(i => {
         const currentItemId = (i._id || i.id || "").toString();

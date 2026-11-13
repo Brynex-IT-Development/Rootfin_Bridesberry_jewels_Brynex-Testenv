@@ -1,11 +1,11 @@
 import { IoPersonCircleOutline } from "react-icons/io5";
-import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
-import { Bell } from "lucide-react";
+import Rootments from '../assets/Rootments.jpg';
+import { useState, useEffect } from "react";
 import baseUrl from '../api/api';
+import salesInventoryAccessConfig from '../config/salesInventoryAccess.json';
 import { getActiveStores, fetchActiveStores, FALLBACK_STORES } from "../utils/storeService.js";
 
-const API_URL = baseUrl?.baseUrl?.replace(/\/$/, "") || "http://localhost:7001";
+const API_URL = baseUrl?.baseUrl?.replace(/\/$/, "") || "http://localhost:7000";
 
 // Function to format location names with proper spacing
 const formatLocationName = (name) => {
@@ -16,6 +16,9 @@ const formatLocationName = (name) => {
     // Exact overrides for known stores
     if (/^warehouse$/i.test(formatted)) {
         return "Warehouse";
+    }
+    if (/^brides\s*berry$/i.test(formatted) || /^bridesberry$/i.test(formatted)) {
+        return "Brides Berry";
     }
     if (/^g[-.\s]?mg\s*road$/i.test(formatted) || /^mg\s*road$/i.test(formatted) || /^suitorguy\s+mg\s*road$/i.test(formatted)) {
         return "MG Road";
@@ -34,9 +37,6 @@ const Header = (prop) => {
 
     const [logOut, setlogOut] = useState(false);
     const [selectedValue, setSelectedValue] = useState("");
-    const [pendingClosuresCount, setPendingClosuresCount] = useState(0);
-    const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-    const notificationRef = useRef(null);
     
     // Initialize currentUser from localStorage immediately to prevent blank display
     const getInitialUser = () => {
@@ -54,8 +54,19 @@ const Header = (prop) => {
         try {
             const storedUser = JSON.parse(localStorage.getItem("rootfinuser"));
             if (storedUser) {
+                const isAdmin = storedUser.power === 'admin';
+                const isClusterManager = (storedUser.role || '').toLowerCase() === 'cluster_manager';
+
+                // For regular store users: NEVER overwrite their store name or locCode!
+                if (!isAdmin && !isClusterManager) {
+                    setCurrentUser(storedUser);
+                    setSelectedValue(storedUser.locCode || "");
+                    return;
+                }
+
+                // For admin or cluster manager: match their active location or default to Warehouse
                 const foundLoc = locations.find(loc => loc.locCode === storedUser.locCode);
-                const activeLoc = foundLoc || locations[0];
+                const activeLoc = foundLoc || locations.find(loc => loc.locCode === "858") || locations[0];
                 if (activeLoc) {
                     const updatedUser = {
                         ...storedUser,
@@ -98,39 +109,6 @@ const Header = (prop) => {
 
         window.addEventListener("rootfin-stores-updated", handleStoresUpdated);
         return () => window.removeEventListener("rootfin-stores-updated", handleStoresUpdated);
-    }, []);
-
-    // Fetch pending closures count for admins
-    useEffect(() => {
-        const fetchNotifications = async () => {
-            const user = getInitialUser();
-            if (user?.power === 'admin' || user?.role === 'superadmin') {
-                try {
-                    const res = await fetch(`${API_URL}/user/pendingClosures`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        setPendingClosuresCount(data.data?.length || 0);
-                    }
-                } catch (e) {
-                    console.error("Error fetching pending closures", e);
-                }
-            }
-        };
-
-        fetchNotifications();
-        const interval = setInterval(fetchNotifications, 30000); // Check every 30s
-        return () => clearInterval(interval);
-    }, []);
-
-    // Close notifications on outside click
-    useEffect(() => {
-        const handleClickOutside = (e) => {
-            if (notificationRef.current && !notificationRef.current.contains(e.target)) {
-                setIsNotificationOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
     // Additional useEffect to periodically sync user from localStorage
@@ -206,6 +184,15 @@ const Header = (prop) => {
 
     const displayName = getDisplayName();
 
+    // Check if user has access to Sales and Inventory (beta features)
+    // Show BETA badge only for non-admin test users (not for admin)
+    const userEmail = currentUser?.email?.toLowerCase() || "";
+    const isAdmin = currentUser?.power === 'admin';
+    const isInBetaList = salesInventoryAccessConfig.allowedEmails
+        .map(email => email.toLowerCase())
+        .includes(userEmail);
+    const hasBetaAccess = !isAdmin && isInBetaList; // Only show badge for non-admin beta testers
+
     return (
         <nav className="bg-white border-b border-gray-200 shadow-sm">
             <div className="max-w-full pl-14 md:pl-16 pr-6 py-3.5 flex flex-wrap items-center justify-between mx-auto">
@@ -213,67 +200,28 @@ const Header = (prop) => {
                     {prop.title && (
                         <h1 className="text-xl font-bold text-gray-800">{prop.title}</h1>
                     )}
+                    <a href="#" className="flex items-center space-x-3 rtl:space-x-reverse">
+                        {hasBetaAccess && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md animate-pulse">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                                BETA
+                            </span>
+                        )}
+                    </a>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    {/* Notification bell for admin */}
-                    {(currentUser.power === 'admin' || currentUser.role === 'superadmin') && (
-                        <div className="relative" ref={notificationRef}>
-                            <button
-                                type="button"
-                                onClick={() => setIsNotificationOpen(!isNotificationOpen)}
-                                className="relative p-2 rounded-full text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                                <Bell size={20} />
-                                {pendingClosuresCount > 0 && (
-                                    <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full transform translate-x-1/4 -translate-y-1/4">
-                                        {pendingClosuresCount}
-                                    </span>
-                                )}
-                            </button>
-
-                            {isNotificationOpen && (
-                                <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50 overflow-hidden">
-                                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-                                        <h3 className="text-sm font-semibold text-gray-800">Pending Requests</h3>
-                                    </div>
-                                    <div className="max-h-64 overflow-y-auto">
-                                        {pendingClosuresCount > 0 ? (
-                                            <Link 
-                                                to="/PendingDaybookClosures" 
-                                                onClick={() => setIsNotificationOpen(false)}
-                                                className="block px-4 py-3 hover:bg-purple-50 transition-colors border-b border-gray-50"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-800">Late Daybook Closures</p>
-                                                        <p className="text-xs text-gray-500 mt-0.5">Require super admin approval</p>
-                                                    </div>
-                                                    <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded-full">{pendingClosuresCount}</span>
-                                                </div>
-                                            </Link>
-                                        ) : (
-                                            <div className="px-4 py-6 text-center text-sm text-gray-500">
-                                                No pending requests.
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                <div
+                    onClick={() => setlogOut((prev) => !prev)}
+                    className="hidden cursor-pointer w-full md:block md:w-auto"
+                    id="navbar-multi-level"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className="text-right">
+                            <p className="text-xs text-gray-500">Location: {formatLocationName(displayName)}</p>
                         </div>
-                    )}
-
-                    <div
-                        onClick={() => setlogOut((prev) => !prev)}
-                        className="hidden cursor-pointer w-full md:block md:w-auto"
-                        id="navbar-multi-level"
-                    >
-                        <div className="flex items-center gap-4">
-                            <div className="text-right">
-                                <p className="text-xs text-gray-500">Location: {formatLocationName(displayName)}</p>
-                            </div>
-                            <IoPersonCircleOutline className="text-4xl text-green-600" />
-                        </div>
+                        <IoPersonCircleOutline className="text-4xl text-green-600" />
                     </div>
                 </div>
             </div>

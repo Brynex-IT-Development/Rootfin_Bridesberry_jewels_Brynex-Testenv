@@ -7,7 +7,6 @@ import { FiDownload, FiChevronDown, FiChevronRight } from "react-icons/fi";
 import { Loader2, Printer, RotateCcw } from "lucide-react";
 import baseUrl from "../api/api";
 import { useSidebar } from "../hooks/useSidebar.js";
-import { useActiveStores } from "../utils/storeService.js";
 
 const TWS_BASE = "https://rentalapi.rootments.live/api/GetBooking";
 
@@ -20,6 +19,34 @@ const firstOfMonth = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 };
 
+const STORE_LIST = [
+  { locName: "G-Edappal",        locCode: "707" },
+  { locName: "G-Edappally",      locCode: "702" },
+  { locName: "G-Kalpetta",       locCode: "717" },
+  { locName: "G-Kannur",         locCode: "716" },
+  { locName: "G-Kottakkal",      locCode: "711" },
+  { locName: "G-Kottayam",       locCode: "701" },
+  { locName: "G-Manjeri",        locCode: "710" },
+  { locName: "G-Mg Road",        locCode: "718" },
+  { locName: "G-Palakkad",       locCode: "705" },
+  { locName: "G-Perinthalmanna", locCode: "709" },
+  { locName: "G-Perumbavoor",    locCode: "703" },
+  { locName: "G-Thrissur",       locCode: "704" },
+  { locName: "G-Vadakara",       locCode: "708" },
+  { locName: "G-Chavakkad",      locCode: "706" },
+  { locName: "G-Calicut",        locCode: "712" },
+  { locName: "HEAD OFFICE01",    locCode: "759" },
+  { locName: "Office",           locCode: "102" },
+  { locName: "Production",       locCode: "101" },
+  { locName: "SG-Trivandrum",    locCode: "700" },
+  { locName: "Warehouse",        locCode: "858" },
+  { locName: "WAREHOUSE",        locCode: "103" },
+  { locName: "Z-Edappal",        locCode: "100" },
+  { locName: "Z-Edapally",       locCode: "144" },
+  { locName: "Z-Kottakkal",      locCode: "122" },
+  { locName: "Z-Perinthalmanna", locCode: "133" },
+];
+
 const EXPENSE_CATEGORIES = new Set([
   "petty expenses","staff reimbursement","maintenance expenses","telephone internet",
   "utility bill","salary","rent","courier charges","asset purchase","promotion_services",
@@ -30,36 +57,32 @@ const EXPENSE_CATEGORIES = new Set([
 ]);
 
 const CATEGORY_LABEL_MAP = {
-  "dry cleaning":           "Dry Cleaning",
-  "altration":              "Altration",
-  "material":               "Material",
-  "courier charges":        "Courier Charges",
-  "maintenance expenses":   "Repairs & Maintenance",
-  "travel exp":             "Travel Exp",
-  "fuel exp":               "Fuel Exp",
-  "petty expenses":         "Office Expense",
-  "telephone internet":     "Internet Expense",
-  "utility bill":           "Electricity Charges",
-  "waste management":       "Waste Management",
-  "water charges":          "Water Charges",
-  "salary":                 "Salary / Salary Advance",
-  "printing stationary":    "Printing & Stationary",
-  "staff welfare":          "Staff Welfare",
-  "staff reimbursement":    "Staff Accommodation",
-  "rent":                   "Rent",
-  "asset purchase":         "Asset Purchase",
-  "incentive":              "Incentive",
-  "spot incentive":         "Incentive",
-  "other expenses":         "Refund",
-  "bulk amount transfer":   "Cash to Bank",
-  "cash to bank":           "Cash to Bank",
-  "bank to cash":           "Bank to Cash",
-  "security":               "Security Deposit",
-  "security refund":        "Security Refund",
-  "write off":              "Write Off",
-  "promotion_services":     "Promotion / Services",
-  "shoe sales return":      "Shoe Sales Return",
-  "shirt sales return":     "Shirt Sales Return",
+  "dry cleaning":         "Dry Cleaning",
+  "altration":            "Altration",
+  "material":             "Material",
+  "courier charges":      "Courier Charges",
+  "maintenance expenses": "Repairs & Maintenance",
+  "travel exp":           "Travel Exp",
+  "fuel exp":             "Fuel Exp",
+  "petty expenses":       "Office Expense",
+  "telephone internet":   "Internet Expense",
+  "utility bill":         "Electricity Charges",
+  "waste management":     "Waste Management",
+  "water charges":        "Water Charges",
+  "salary":               "Salary / Salary Advance",
+  "printing stationary":  "Printing & Stationary",
+  "staff welfare":        "Staff Welfare",
+  "staff reimbursement":  "Staff Accommodation",
+  "rent":                 "Rent",
+  "asset purchase":       "Asset Purchase",
+  "incentive":            "Incentive",
+  "spot incentive":       "Incentive",
+  "other expenses":       "Refund",
+  "bulk amount transfer": "Cash to Bank",
+  "write off":            "Write Off",
+  "promotion_services":   "Promotion / Services",
+  "shoe sales return":    "Shoe Sales Return",
+  "shirt sales return":   "Shirt Sales Return",
 };
 
 const getCategoryLabel = (cat) =>
@@ -103,7 +126,6 @@ const customSelectStyles = {
 
 export default function IncomeExpenseReport() {
   const isSidebarOpen = useSidebar();
-  const { stores: STORE_LIST } = useActiveStores();
   const user = JSON.parse(localStorage.getItem("rootfinuser")) || {};
   const isAdmin = (user.power || "").toLowerCase() === "admin";
   const isClusterManager = (user.role || "").toLowerCase() === "cluster_manager";
@@ -115,9 +137,7 @@ export default function IncomeExpenseReport() {
   const [filterCategory, setFilterCategory] = useState("All Categories");
   const [selectedStore, setSelectedStore] = useState("all");
   const [incomeRows, setIncomeRows] = useState([]);
-  const [depositRows, setDepositRows] = useState([]);
   const [expenseRows, setExpenseRows] = useState([]);
-  const [refundTransferRows, setRefundTransferRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const [expanded, setExpanded] = useState({});
@@ -135,9 +155,7 @@ export default function IncomeExpenseReport() {
     setLoading(true);
     setHasFetched(true);
     setIncomeRows([]);
-    setDepositRows([]);
     setExpenseRows([]);
-    setRefundTransferRows([]);
     setExpanded({});
     try {
       const API = baseUrl?.baseUrl?.replace(/\/$/, "") || "http://localhost:7000";
@@ -202,8 +220,7 @@ export default function IncomeExpenseReport() {
         locCode: item.locCode || locCode,
       }));
 
-      const rentoutIncomeList = [];
-      const securityDepositList = [];
+      const rentoutList = [];
       (rentoutData?.dataSet?.data || []).forEach((item) => {
         const security       = Number(item.securityAmount || 0);
         const advance        = Number(item.advanceAmount || 0);
@@ -216,23 +233,22 @@ export default function IncomeExpenseReport() {
           date: (item.rentOutDate || "").split("T")[0],
           invoiceNo: item.invoiceNo,
           customerName: item.customerName || "",
+          category: "RentOut",
           locCode: item.locCode || locCode,
           cash, rbl, bank, upi,
         };
-        if (security > 0) {
-          securityDepositList.push({ ...base, category: "Security", subCategory: "RentOut Security", amount: security });
-        }
-        rentoutIncomeList.push({ ...base, category: "RentOut", subCategory: "Balance Payable", amount: balancePayable });
+        rentoutList.push({ ...base, subCategory: "Security", amount: security });
+        rentoutList.push({ ...base, subCategory: "Balance Payable", amount: balancePayable });
       });
 
-      const securityRefundList = (returnData?.dataSet?.data || []).map((item) => {
+      const returnList = (returnData?.dataSet?.data || []).map((item) => {
         const rbl = -Math.abs(Number(item.rblRazorPay || 0));
         return {
           date: (item.returnedDate || item.returnDate || "").split("T")[0],
           invoiceNo: item.invoiceNo,
           customerName: item.customerName || "",
-          category: "Security Refund",
-          subCategory: "RentOut Security Refund",
+          category: "Return",
+          subCategory: "Security Refund",
           cash: -Math.abs(Number(item.returnCashAmount || 0)),
           rbl,
           bank: rbl !== 0 ? 0 : -Math.abs(Number(item.returnBankAmount || 0)),
@@ -259,12 +275,10 @@ export default function IncomeExpenseReport() {
 
       const mongoTxns = Array.isArray(mongoJson) ? mongoJson : mongoJson.data || [];
       const mongoIncome = [];
-      const mongoDeposits = [];
       const mongoExpense = [];
-      const mongoRefundTransfers = [];
 
       mongoTxns.forEach((t) => {
-        const tp  = (t.type || "").toLowerCase().trim();
+        const tp  = (t.type || "").toLowerCase();
         const sub = (t.subCategory || "").toLowerCase().trim();
         const cat = (t.category || "").toLowerCase().trim();
         const inv = (t.invoiceNo || "").toUpperCase();
@@ -274,28 +288,8 @@ export default function IncomeExpenseReport() {
         const isReturnInvoice = inv.startsWith("RTN-") || inv.startsWith("RET-");
         if (!isShoeOrShirtSale && !isReturnInvoice && (inv.startsWith("INV-") || inv.startsWith("RTN-") || inv.startsWith("RET-"))) return;
 
-        const isBankToCash = cat === "bank to cash" || sub === "bank to cash" || cat.includes("bank to cash") || sub.includes("bank to cash");
-        const isCashToBank = cat === "bulk amount transfer" || sub === "bulk amount transfer" || cat === "cash to bank" || sub === "cash to bank" || cat.includes("cash to bank") || sub.includes("cash to bank");
-
-        const normalizedCategory = isShoeOrShirtSale
-          ? "Sales"
-          : isReturnInvoice
-          ? "Return Invoice"
-          : isBankToCash
-          ? "Bank to Cash"
-          : isCashToBank
-          ? "Cash to Bank"
-          : (t.category || "Uncategorized");
-
-        const normalizedSubCategory = isShoeOrShirtSale
-          ? (t.subCategory || t.category || "Sales")
-          : isReturnInvoice
-          ? (t.subCategory || "Sales Return")
-          : isBankToCash
-          ? "Bank to Cash"
-          : isCashToBank
-          ? "Cash to Bank"
-          : (t.subCategory || t.category || "");
+        const normalizedCategory = isShoeOrShirtSale ? "Sales" : isReturnInvoice ? "Return Invoice" : (t.category || "Uncategorized");
+        const normalizedSubCategory = isShoeOrShirtSale ? (t.subCategory || t.category || "Sales") : isReturnInvoice ? (t.subCategory || "Sales Return") : (t.subCategory || t.category || "");
 
         const row = {
           date: (t.date || "").split("T")[0],
@@ -311,23 +305,14 @@ export default function IncomeExpenseReport() {
           locCode: t.locCode || locCode,
         };
 
-        if (isReturnInvoice) {
-          mongoExpense.push(row);
-        } else if (isBankToCash) {
-          mongoDeposits.push(row);
-        } else if (isCashToBank) {
-          mongoRefundTransfers.push(row);
-        } else if (tp === "income") {
-          mongoIncome.push(row);
-        } else if (tp === "expense" || EXPENSE_CATEGORIES.has(cat)) {
-          mongoExpense.push(row);
-        }
+        if (isReturnInvoice) mongoExpense.push(row);
+        else if (tp === "income") mongoIncome.push(row);
+        else if (tp === "expense") mongoExpense.push(row);
+        else if (EXPENSE_CATEGORIES.has(cat)) mongoExpense.push(row);
       });
 
-      setIncomeRows([...bookingList, ...rentoutIncomeList, ...mongoIncome]);
-      setDepositRows([...securityDepositList, ...mongoDeposits]);
-      setExpenseRows([...cancelList, ...mongoExpense]);
-      setRefundTransferRows([...securityRefundList, ...mongoRefundTransfers]);
+      setIncomeRows([...bookingList, ...rentoutList, ...mongoIncome]);
+      setExpenseRows([...returnList, ...cancelList, ...mongoExpense]);
     } catch (e) {
       console.error(e);
       alert("Error fetching income/expense records: " + e.message);
@@ -345,11 +330,11 @@ export default function IncomeExpenseReport() {
       if (!map[cat]) map[cat] = { subCategories: {}, cash: 0, rbl: 0, bank: 0, upi: 0 };
       if (!map[cat].subCategories[sub]) map[cat].subCategories[sub] = { transactions: [], cash: 0, rbl: 0, bank: 0, upi: 0 };
 
-      const isSpecialAmount = t.amount !== undefined;
+      const isRentOut = cat === "RentOut";
       const subG = map[cat].subCategories[sub];
       subG.transactions.push(t);
 
-      if (isSpecialAmount) {
+      if (isRentOut) {
         subG.cash += t.amount || 0;
         map[cat].cash += t.amount || 0;
       } else {
@@ -366,10 +351,8 @@ export default function IncomeExpenseReport() {
     return map;
   };
 
-  const incomeGrouped         = useMemo(() => buildGrouped(incomeRows), [incomeRows, filterCategory]);
-  const depositGrouped        = useMemo(() => buildGrouped(depositRows), [depositRows, filterCategory]);
-  const expenseGrouped        = useMemo(() => buildGrouped(expenseRows), [expenseRows, filterCategory]);
-  const refundTransferGrouped = useMemo(() => buildGrouped(refundTransferRows), [refundTransferRows, filterCategory]);
+  const incomeGrouped  = useMemo(() => buildGrouped(incomeRows), [incomeRows, filterCategory]);
+  const expenseGrouped = useMemo(() => buildGrouped(expenseRows), [expenseRows, filterCategory]);
 
   const sumGroup = (grouped) =>
     Object.values(grouped).reduce(
@@ -378,15 +361,9 @@ export default function IncomeExpenseReport() {
     );
 
   const incTotals = useMemo(() => sumGroup(incomeGrouped), [incomeGrouped]);
-  const depTotals = useMemo(() => sumGroup(depositGrouped), [depositGrouped]);
   const expTotals = useMemo(() => sumGroup(expenseGrouped), [expenseGrouped]);
-  const refTotals = useMemo(() => sumGroup(refundTransferGrouped), [refundTransferGrouped]);
-
   const incTotal  = incTotals.cash + incTotals.rbl + incTotals.bank + incTotals.upi;
-  const depTotal  = depTotals.cash + depTotals.rbl + depTotals.bank + depTotals.upi;
   const expTotal  = expTotals.cash + expTotals.rbl + expTotals.bank + expTotals.upi;
-  const refTotal  = refTotals.cash + refTotals.rbl + refTotals.bank + refTotals.upi;
-
   const netCash   = incTotals.cash + expTotals.cash;
   const netRbl    = incTotals.rbl  + expTotals.rbl;
   const netBank   = incTotals.bank + expTotals.bank;
@@ -394,8 +371,8 @@ export default function IncomeExpenseReport() {
   const netTotal  = incTotal + expTotal;
 
   const allCategories = useMemo(() => {
-    return [...new Set([...incomeRows, ...depositRows, ...expenseRows, ...refundTransferRows].map((t) => t.category || "Uncategorized"))];
-  }, [incomeRows, depositRows, expenseRows, refundTransferRows]);
+    return [...new Set([...incomeRows, ...expenseRows].map((t) => t.category || "Uncategorized"))];
+  }, [incomeRows, expenseRows]);
 
   const categoryOptions = useMemo(() => [
     { value: "All Categories", label: "All Categories" },
@@ -422,11 +399,6 @@ export default function IncomeExpenseReport() {
   const csvExportData = useMemo(() => {
     const list = [];
     incomeRows.forEach((t) => {
-      const isSpecial = t.amount !== undefined;
-      const c = isSpecial ? t.amount : (t.cash || 0);
-      const r = isSpecial ? 0 : (t.rbl || 0);
-      const b = isSpecial ? 0 : (t.bank || 0);
-      const u = isSpecial ? 0 : (t.upi || 0);
       list.push({
         Type: "Income",
         Date: t.date || "-",
@@ -436,33 +408,11 @@ export default function IncomeExpenseReport() {
         Customer: t.customerName || "-",
         Remarks: t.remark || "-",
         Branch: getBranchName(t.locCode),
-        Cash: c,
-        Razorpay: r,
-        Bank: b,
-        UPI: u,
-        Total: c + r + b + u,
-      });
-    });
-    depositRows.forEach((t) => {
-      const isSpecial = t.amount !== undefined;
-      const c = isSpecial ? t.amount : (t.cash || 0);
-      const r = isSpecial ? 0 : (t.rbl || 0);
-      const b = isSpecial ? 0 : (t.bank || 0);
-      const u = isSpecial ? 0 : (t.upi || 0);
-      list.push({
-        Type: "Security / Transfer",
-        Date: t.date || "-",
-        Category: getCategoryLabel(t.category),
-        "Sub Category": getCategoryLabel(t.subCategory),
-        "Invoice / Item": t.invoiceNo || "-",
-        Customer: t.customerName || "-",
-        Remarks: t.remark || "-",
-        Branch: getBranchName(t.locCode),
-        Cash: c,
-        Razorpay: r,
-        Bank: b,
-        UPI: u,
-        Total: c + r + b + u,
+        Cash: t.cash || 0,
+        Razorpay: t.rbl || 0,
+        Bank: t.bank || 0,
+        UPI: t.upi || 0,
+        Total: (t.cash || 0) + (t.rbl || 0) + (t.bank || 0) + (t.upi || 0),
       });
     });
     expenseRows.forEach((t) => {
@@ -482,25 +432,8 @@ export default function IncomeExpenseReport() {
         Total: (t.cash || 0) + (t.rbl || 0) + (t.bank || 0) + (t.upi || 0),
       });
     });
-    refundTransferRows.forEach((t) => {
-      list.push({
-        Type: "Security Refund / Transfer",
-        Date: t.date || "-",
-        Category: getCategoryLabel(t.category),
-        "Sub Category": getCategoryLabel(t.subCategory),
-        "Invoice / Item": t.invoiceNo || "-",
-        Customer: t.customerName || "-",
-        Remarks: t.remark || "-",
-        Branch: getBranchName(t.locCode),
-        Cash: t.cash || 0,
-        Razorpay: t.rbl || 0,
-        Bank: t.bank || 0,
-        UPI: t.upi || 0,
-        Total: (t.cash || 0) + (t.rbl || 0) + (t.bank || 0) + (t.upi || 0),
-      });
-    });
     return list;
-  }, [incomeRows, depositRows, expenseRows, refundTransferRows]);
+  }, [incomeRows, expenseRows]);
 
   const renderCategoryRows = (grouped, typeLabel, isIncome) =>
     Object.keys(grouped).map((cat) => {
@@ -548,9 +481,9 @@ export default function IncomeExpenseReport() {
                 const dateStr = t.date
                   ? new Date(t.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })
                   : "-";
-                const isSpecial = t.amount !== undefined;
+                const isRentOut = cat === "RentOut";
                 const isIncentiveCat = cat.toLowerCase() === "incentive";
-                const tCash = isSpecial ? t.amount || 0 : t.cash || 0;
+                const tCash = isRentOut ? t.amount || 0 : t.cash || 0;
                 return (
                   <tr key={`${subKey}-${i}`} className="bg-gray-50/50 hover:bg-purple-50/30 transition-colors border-b border-gray-100 text-xs">
                     <td className="px-3 py-2 text-gray-400 pl-8">{dateStr}</td>
@@ -568,10 +501,10 @@ export default function IncomeExpenseReport() {
                         </span>
                       </td>
                     )}
-                    <td className="px-3 py-2 text-right text-gray-700">{tCash !== 0 ? (isIncome ? fmt(tCash) : `-${fmt(Math.abs(tCash))}`) : "-"}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{!isSpecial && t.rbl !== 0 ? (isIncome ? fmt(t.rbl) : `-${fmt(Math.abs(t.rbl))}`) : "-"}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{!isSpecial && t.bank !== 0 ? (isIncome ? fmt(t.bank) : `-${fmt(Math.abs(t.bank))}`) : "-"}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{!isSpecial && t.upi !== 0 ? (isIncome ? fmt(t.upi) : `-${fmt(Math.abs(t.upi))}`) : "-"}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{tCash !== 0 ? fmt(tCash) : "-"}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{!isRentOut && t.rbl !== 0 ? fmt(t.rbl) : "-"}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{!isRentOut && t.bank !== 0 ? fmt(t.bank) : "-"}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{!isRentOut && t.upi !== 0 ? fmt(t.upi) : "-"}</td>
                     <td className="px-3 py-2"></td>
                   </tr>
                 );
@@ -611,12 +544,7 @@ export default function IncomeExpenseReport() {
       ];
     });
 
-  const hasData =
-    !loading &&
-    (Object.keys(incomeGrouped).length > 0 ||
-      Object.keys(depositGrouped).length > 0 ||
-      Object.keys(expenseGrouped).length > 0 ||
-      Object.keys(refundTransferGrouped).length > 0);
+  const hasData = !loading && (Object.keys(incomeGrouped).length > 0 || Object.keys(expenseGrouped).length > 0);
 
   return (
     <>
@@ -717,9 +645,7 @@ export default function IncomeExpenseReport() {
                       setFilterCategory("All Categories");
                       setSelectedStore("all");
                       setIncomeRows([]);
-                      setDepositRows([]);
                       setExpenseRows([]);
-                      setRefundTransferRows([]);
                       setExpanded({});
                       setHasFetched(false);
                     }}
@@ -804,7 +730,7 @@ export default function IncomeExpenseReport() {
                     Total Transactions
                   </div>
                   <div className="text-2xl lg:text-3xl font-bold text-gray-900">
-                    {incomeRows.length + depositRows.length + expenseRows.length + refundTransferRows.length}
+                    {incomeRows.length + expenseRows.length}
                   </div>
                 </div>
               </div>
@@ -860,126 +786,64 @@ export default function IncomeExpenseReport() {
                       </tr>
                     )}
 
-                    {!loading &&
-                      !hasData &&
-                      incomeRows.length === 0 &&
-                      depositRows.length === 0 &&
-                      expenseRows.length === 0 &&
-                      refundTransferRows.length === 0 && (
-                        <tr>
-                          <td colSpan={showBranch ? 10 : 9} className="py-24 text-center">
-                            <p className="text-sm font-medium text-gray-500">
-                              {hasFetched ? "No records found for the selected criteria" : "Select date range and click Apply Filter"}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              Detailed overview of Income &amp; Expense Report
-                            </p>
-                          </td>
-                        </tr>
-                      )}
+                    {!loading && !hasData && incomeRows.length === 0 && expenseRows.length === 0 && (
+                      <tr>
+                        <td colSpan={showBranch ? 10 : 9} className="py-24 text-center">
+                          <p className="text-sm font-medium text-gray-500">
+                            {hasFetched ? "No records found for the selected criteria" : "Select date range and click Apply Filter"}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Detailed overview of Income &amp; Expense Report
+                          </p>
+                        </td>
+                      </tr>
+                    )}
 
-                    {!loading &&
-                      !hasData &&
-                      (incomeRows.length > 0 ||
-                        depositRows.length > 0 ||
-                        expenseRows.length > 0 ||
-                        refundTransferRows.length > 0) && (
-                        <tr>
-                          <td colSpan={showBranch ? 10 : 9} className="py-16 text-center text-gray-500 text-sm">
-                            No results match the selected category filter.
-                          </td>
-                        </tr>
-                      )}
+                    {!loading && !hasData && (incomeRows.length > 0 || expenseRows.length > 0) && (
+                      <tr>
+                        <td colSpan={showBranch ? 10 : 9} className="py-16 text-center text-gray-500 text-sm">
+                          No results match the selected category filter.
+                        </td>
+                      </tr>
+                    )}
 
                     {hasData && (
                       <>
                         {/* INCOME SECTION */}
-                        {Object.keys(incomeGrouped).length > 0 && (
-                          <>
-                            <tr className="bg-emerald-500/15 border-y border-emerald-200">
-                              <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-emerald-900 uppercase tracking-wider">
-                                INCOME
-                              </td>
-                            </tr>
-                            {renderCategoryRows(incomeGrouped, "INCOME", true)}
-                            <tr className="bg-emerald-50/80 border-t-2 border-emerald-300 font-semibold text-xs">
-                              <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-emerald-900 font-bold tracking-wide">
-                                Income Total
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.cash !== 0 ? fmt(incTotals.cash) : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.rbl  !== 0 ? fmt(incTotals.rbl)  : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.bank !== 0 ? fmt(incTotals.bank) : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.upi  !== 0 ? fmt(incTotals.upi)  : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-emerald-900 text-sm">{fmt(incTotal)}</td>
-                            </tr>
-                          </>
-                        )}
-
-                        {/* SECURITY DEPOSITS & CASH TRANSFERS SECTION (UNDER INCOME TOTAL) */}
-                        {Object.keys(depositGrouped).length > 0 && (
-                          <>
-                            <tr className="bg-amber-500/15 border-y border-amber-200">
-                              <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-amber-950 uppercase tracking-wider">
-                                SECURITY DEPOSITS &amp; CASH TRANSFERS
-                              </td>
-                            </tr>
-                            {renderCategoryRows(depositGrouped, "DEPOSIT", true)}
-                            <tr className="bg-amber-50/80 border-t-2 border-amber-300 font-semibold text-xs">
-                              <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-amber-950 font-bold tracking-wide">
-                                Security &amp; Transfers Total
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-bold text-amber-900">{depTotals.cash !== 0 ? fmt(depTotals.cash) : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-amber-900">{depTotals.rbl  !== 0 ? fmt(depTotals.rbl)  : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-amber-900">{depTotals.bank !== 0 ? fmt(depTotals.bank) : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-amber-900">{depTotals.upi  !== 0 ? fmt(depTotals.upi)  : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-amber-950 text-sm">{fmt(depTotal)}</td>
-                            </tr>
-                          </>
-                        )}
+                        <tr className="bg-emerald-500/15 border-y border-emerald-200">
+                          <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                            INCOME
+                          </td>
+                        </tr>
+                        {renderCategoryRows(incomeGrouped, "INCOME", true)}
+                        <tr className="bg-emerald-50/80 border-t-2 border-emerald-300 font-semibold text-xs">
+                          <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-emerald-900 font-bold tracking-wide">
+                            Income Total
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.cash !== 0 ? fmt(incTotals.cash) : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.rbl  !== 0 ? fmt(incTotals.rbl)  : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.bank !== 0 ? fmt(incTotals.bank) : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-800">{incTotals.upi  !== 0 ? fmt(incTotals.upi)  : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-900 text-sm">{fmt(incTotal)}</td>
+                        </tr>
 
                         {/* EXPENSES SECTION */}
-                        {Object.keys(expenseGrouped).length > 0 && (
-                          <>
-                            <tr className="bg-rose-500/15 border-y border-rose-200">
-                              <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-rose-900 uppercase tracking-wider">
-                                EXPENSES
-                              </td>
-                            </tr>
-                            {renderCategoryRows(expenseGrouped, "EXPENSE", false)}
-                            <tr className="bg-rose-50/80 border-t-2 border-rose-300 font-semibold text-xs">
-                              <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-rose-900 font-bold tracking-wide">
-                                Expense Total
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.cash !== 0 ? `-${fmt(Math.abs(expTotals.cash))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.rbl  !== 0 ? `-${fmt(Math.abs(expTotals.rbl))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.bank !== 0 ? `-${fmt(Math.abs(expTotals.bank))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.upi  !== 0 ? `-${fmt(Math.abs(expTotals.upi))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-900 text-sm">{expTotal !== 0 ? `-${fmt(Math.abs(expTotal))}` : "-"}</td>
-                            </tr>
-                          </>
-                        )}
-
-                        {/* SECURITY REFUNDS & CASH TRANSFERS SECTION (UNDER EXPENSE TOTAL) */}
-                        {Object.keys(refundTransferGrouped).length > 0 && (
-                          <>
-                            <tr className="bg-orange-500/15 border-y border-orange-200">
-                              <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-orange-950 uppercase tracking-wider">
-                                SECURITY REFUNDS &amp; CASH TO BANK TRANSFERS
-                              </td>
-                            </tr>
-                            {renderCategoryRows(refundTransferGrouped, "REFUND_TRANSFER", false)}
-                            <tr className="bg-orange-50/80 border-t-2 border-orange-300 font-semibold text-xs">
-                              <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-orange-950 font-bold tracking-wide">
-                                Security Refunds &amp; Transfers Total
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-bold text-orange-900">{refTotals.cash !== 0 ? `-${fmt(Math.abs(refTotals.cash))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-orange-900">{refTotals.rbl  !== 0 ? `-${fmt(Math.abs(refTotals.rbl))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-orange-900">{refTotals.bank !== 0 ? `-${fmt(Math.abs(refTotals.bank))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-orange-900">{refTotals.upi  !== 0 ? `-${fmt(Math.abs(refTotals.upi))}` : "-"}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-orange-950 text-sm">{refTotal !== 0 ? `-${fmt(Math.abs(refTotal))}` : "-"}</td>
-                            </tr>
-                          </>
-                        )}
+                        <tr className="bg-rose-500/15 border-y border-rose-200">
+                          <td colSpan={showBranch ? 10 : 9} className="px-4 py-2.5 text-xs font-bold text-rose-900 uppercase tracking-wider">
+                            EXPENSES
+                          </td>
+                        </tr>
+                        {renderCategoryRows(expenseGrouped, "EXPENSE", false)}
+                        <tr className="bg-rose-50/80 border-t-2 border-rose-300 font-semibold text-xs">
+                          <td colSpan={showBranch ? 5 : 4} className="px-4 py-2.5 text-left uppercase text-rose-900 font-bold tracking-wide">
+                            Expense Total
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.cash !== 0 ? `-${fmt(Math.abs(expTotals.cash))}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.rbl  !== 0 ? `-${fmt(Math.abs(expTotals.rbl))}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.bank !== 0 ? `-${fmt(Math.abs(expTotals.bank))}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-rose-800">{expTotals.upi  !== 0 ? `-${fmt(Math.abs(expTotals.upi))}` : "-"}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-rose-900 text-sm">{expTotal !== 0 ? `-${fmt(Math.abs(expTotal))}` : "-"}</td>
+                        </tr>
 
                         {/* NET DIFFERENCE SECTION */}
                         <tr className="bg-purple-100/80 border-t-2 border-purple-300 font-bold text-xs">

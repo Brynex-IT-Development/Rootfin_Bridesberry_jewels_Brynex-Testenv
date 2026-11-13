@@ -1,12 +1,7 @@
 import { Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import usePreventNumberInputScroll from "./hooks/usePreventNumberInputScroll";
-import LoadingScreen from "./components/LoadingScreen.jsx";
-import Home from "./pages/Home.jsx";
-import PendingDaybookClosures from "./pages/PendingDaybookClosures.jsx";
 import DayBookInc from "./pages/BillWiseIncome.jsx";
-import RecordExpenses from "./pages/RecordExpenses.jsx";
-import DirectIndirectExpenses from "./pages/DirectIndirectExpenses.jsx";
 import Datewisedaybook from "./pages/Datewisedaybook.jsx";
 import Booking from "./pages/Booking.jsx";
 import DayBook from "./pages/DayBook.jsx";
@@ -92,13 +87,78 @@ const App = () => {
 
   // Retrieve the current user from localStorage
   const currentuser = JSON.parse(localStorage.getItem("rootfinuser")); // Convert back to an object
-  const isClusterManager = (currentuser?.role || "").toLowerCase() === "cluster_manager";
+  const userRole = (currentuser?.role || "").toLowerCase().trim();
+  const userPower = (currentuser?.power || "").toLowerCase().trim();
+  const userEmail = currentuser?.email?.toLowerCase().trim() || "";
+  const userLocCode = (currentuser?.locCode || "").toString().trim();
+
+  const adminEmails = [
+    "officerootments@gmail.com",
+    "brynex@gmail.com",
+    "operationsrootments@gmail.com",
+    "headoffice01@gmail.com"
+  ];
+
+  // Main system administrator - ALWAYS full admin access
+  const isAdmin = 
+    userPower === 'admin' || 
+    userPower === 'super_admin' || 
+    userRole === 'admin' || 
+    userRole === 'superadmin' ||
+    adminEmails.includes(userEmail);
+
+  // Warehouse staff (central operations)
+  const isWarehouse = 
+    userPower === 'warehouse' || 
+    userLocCode === '858' || 
+    userLocCode === '103';
+
+  // BridesBerry store user check
+  const isBridesBerry = 
+    userLocCode === '155' || 
+    userEmail.includes('bridesberry') || 
+    (currentuser?.username || "").toLowerCase().includes('bridesberry');
+
+  // Cluster Admin / Cluster Manager (NEVER if main admin)
+  const isClusterAdmin = !isAdmin && (
+    userRole === "cluster_manager" || 
+    userRole === "cluster_admin" || 
+    userRole.includes("cluster")
+  );
+  const isClusterManager = isClusterAdmin;
+
+  // Store Admin / Store Manager / Store User (NEVER if main admin or warehouse)
+  const isStoreAdmin = !isAdmin && !isWarehouse && (
+    userRole === "store_manager" || 
+    userRole === "store_admin" || 
+    userRole === "store_user" ||
+    Boolean(currentuser?.storeName) ||
+    Boolean(currentuser?.storeId) ||
+    (userLocCode && !['858', '103', '759', '101', '102'].includes(userLocCode)) ||
+    isBridesBerry
+  );
+
+  const isStoreOrClusterAdmin = isClusterAdmin || isStoreAdmin;
+
+  // Restricted modules: Inventory Adjustments, Purchase Module, Reorder Alerts, Inactive
+  // Must be accessible to Admin and Warehouse.
+  // NEVER accessible to Store Admin or Cluster Admin.
+  const canAccessAdminRestrictedModules = (isAdmin || isWarehouse) && !isClusterAdmin;
 
   // Allowed routes for cluster managers
   const clusterAllowedRoutes = ["/datewisedaybook", "/BookingReport", "/RentOutReport", "/securityReport", "/Revenuereport", "/reports/income-expense", "/reports/inventory", "/reports/sales", "/reports/sales-by-invoice", "/reports/sales-by-group"];
   const ClusterGuard = ({ children }) => {
     if (isClusterManager && !clusterAllowedRoutes.includes(location.pathname)) {
       return <Navigate to="/datewisedaybook" />;
+    }
+    return children;
+  };
+
+  // Guard for modules restricted from Store Admin and Cluster Admin
+  const AdminRestrictedGuard = ({ children }) => {
+    if (!currentuser) return <Navigate to="/login" />;
+    if (!canAccessAdminRestrictedModules) {
+      return <Navigate to={isClusterManager ? "/datewisedaybook" : "/shoe-sales/items"} replace />;
     }
     return children;
   };
@@ -166,19 +226,6 @@ const App = () => {
     };
   }, [navigate, currentuser]);
 
-  const [initialLoading, setInitialLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setInitialLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (initialLoading) {
-    return <LoadingScreen title="ROOTFIN" subtitle="BRYNEX FINANCIAL SOFTWARE" />;
-  }
-
   return (
     <div className="">
       {currentuser && <Nav />} {/* Show Nav only if user is logged in */}
@@ -188,21 +235,13 @@ const App = () => {
           <Route path="/login" element={!currentuser ? <Login /> : <Navigate to="/" />} />
 
           {/* Protected Routes (Redirect to Login if Not Authenticated) */}
-          <Route path="/" element={currentuser ? (isClusterManager ? <Navigate to="/datewisedaybook" /> : ((currentuser?.power === 'admin' || currentuser?.role === 'superadmin') ? <Home /> : <DayBookInc />)) : <Navigate to="/login" />} />
-          <Route path="/dashboard" element={currentuser ? <Home /> : <Navigate to="/login" />} />
-          <Route path="/daybook" element={currentuser ? <DayBookInc /> : <Navigate to="/login" />} />
-          <Route path="/PendingDaybookClosures" element={currentuser?.power === 'admin' || currentuser?.role === 'superadmin' ? <PendingDaybookClosures /> : <Navigate to='/' />} />
+          <Route path="/" element={currentuser ? (isClusterManager ? <Navigate to="/datewisedaybook" /> : <DayBookInc />) : <Navigate to="/login" />} />
           <Route path="/datewisedaybook" element={currentuser ? <Datewisedaybook /> : <Navigate to="/login" />} />
           <Route path="/BookingReport" element={currentuser ? <Booking /> : <Navigate to="/login" />} />
           <Route path="/RentOutReport" element={currentuser ? <DayBook /> : <Navigate to="/login" />} />
           <Route path="/Income&Expenses" element={currentuser ? <ClusterGuard><SecurityReturn /></ClusterGuard> : <Navigate to="/login" />} />
           <Route path="/income" element={currentuser ? <ClusterGuard><Income /></ClusterGuard> : <Navigate to="/login" />} />
           <Route path="/expenses" element={currentuser ? <ClusterGuard><Expenses /></ClusterGuard> : <Navigate to="/login" />} />
-          <Route path="/record-expense" element={currentuser ? <ClusterGuard><RecordExpenses /></ClusterGuard> : <Navigate to="/login" />} />
-          <Route path="/record-expenses" element={currentuser ? <ClusterGuard><RecordExpenses /></ClusterGuard> : <Navigate to="/login" />} />
-          <Route path="/record-expense/new" element={currentuser ? <ClusterGuard><DirectIndirectExpenses initialType="direct" /></ClusterGuard> : <Navigate to="/login" />} />
-          <Route path="/direct-expenses" element={currentuser ? <ClusterGuard><DirectIndirectExpenses initialType="direct" /></ClusterGuard> : <Navigate to="/login" />} />
-          <Route path="/indirect-expenses" element={currentuser ? <ClusterGuard><DirectIndirectExpenses initialType="indirect" /></ClusterGuard> : <Navigate to="/login" />} />
           <Route path="/CashBankLedger" element={currentuser ? <ClusterGuard><SecurityPending /></ClusterGuard> : <Navigate to="/login" />} />
           <Route path="/securityReport" element={currentuser ? <Security /> : <Navigate to='/login' />} />
           <Route path="/CloseReport" element={currentuser?.power === 'admin' ? <CloseReport /> : <Navigate to='/' />} />
@@ -217,7 +256,7 @@ const App = () => {
           <Route path="/manage-users/reset-password" element={currentuser?.power === 'admin' ? <ResetUserPassword /> : <Navigate to='/' />} />
           
           <Route path="/shoe-sales/items" element={currentuser ? <ShoeSalesItems /> : <Navigate to="/login" />} />
-          <Route path="/shoe-sales/inactive-items" element={currentuser ? <InactiveItems /> : <Navigate to="/login" />} />
+          <Route path="/shoe-sales/inactive-items" element={<AdminRestrictedGuard><InactiveItems /></AdminRestrictedGuard>} />
           <Route path="/shoe-sales/items/:itemId/stocks" element={(currentuser?.power === 'admin' || currentuser?.power === 'warehouse') ? <StandaloneItemStockManagement /> : <Navigate to="/" />} />
           <Route path="/shoe-sales/items/:itemId/edit" element={currentuser ? <ShoeSalesItemCreate /> : <Navigate to="/login" />} />
           <Route path="/shoe-sales/items/:itemId" element={currentuser ? <ShoeSalesItemDetail /> : <Navigate to="/login" />} />
@@ -232,10 +271,10 @@ const App = () => {
           <Route path="/shoe-sales/item-groups/:id" element={currentuser ? <ShoeSalesItemGroupDetail /> : <Navigate to="/login" />} />
           <Route path="/shoe-sales/price-lists" element={currentuser ? <ShoeSalesPriceLists /> : <Navigate to="/login" />} />
           <Route path="/shoe-sales/price-lists/new" element={currentuser ? <ShoeSalesPriceListCreate /> : <Navigate to="/login" />} />
-          <Route path="/inventory/adjustments" element={currentuser ? <InventoryAdjustments /> : <Navigate to="/login" />} />
-          <Route path="/inventory/adjustments/new" element={currentuser ? <InventoryAdjustmentCreate /> : <Navigate to="/login" />} />
-          <Route path="/inventory/adjustments/:id" element={currentuser ? <InventoryAdjustmentDetail /> : <Navigate to="/login" />} />
-          <Route path="/inventory/adjustments/:id/edit" element={currentuser ? <InventoryAdjustmentCreate /> : <Navigate to="/login" />} />
+          <Route path="/inventory/adjustments" element={<AdminRestrictedGuard><InventoryAdjustments /></AdminRestrictedGuard>} />
+          <Route path="/inventory/adjustments/new" element={<AdminRestrictedGuard><InventoryAdjustmentCreate /></AdminRestrictedGuard>} />
+          <Route path="/inventory/adjustments/:id" element={<AdminRestrictedGuard><InventoryAdjustmentDetail /></AdminRestrictedGuard>} />
+          <Route path="/inventory/adjustments/:id/edit" element={<AdminRestrictedGuard><InventoryAdjustmentCreate /></AdminRestrictedGuard>} />
           <Route path="/inventory/packages" element={currentuser ? <InventoryPackages /> : <Navigate to="/login" />} />
           <Route path="/inventory/packages/new" element={currentuser ? <InventoryPackageCreate /> : <Navigate to="/login" />} />
           <Route path="/inventory/transfer-orders" element={currentuser ? <TransferOrders /> : <Navigate to="/login" />} />
@@ -260,30 +299,30 @@ const App = () => {
           <Route path="/sales/credit-notes" element={currentuser ? <CreditNotes /> : <Navigate to="/login" />} />
 
           <Route path="/Revenuereport" element={currentuser ? <Revenuereport /> : <Navigate to="/login" />} />
-          <Route path="/shoe-sales/inactive" element={currentuser ? <InactiveItems /> : <Navigate to="/login" />} />
+          <Route path="/shoe-sales/inactive" element={<AdminRestrictedGuard><InactiveItems /></AdminRestrictedGuard>} />
 
           {/* Purchase */}
-          <Route path="/purchase/orders" element={currentuser ? <PurchaseOrders /> : <Navigate to="/login" />} />
-          <Route path="/purchase/orders/new" element={currentuser ? <PurchaseOrderCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/orders/:id/edit" element={currentuser ? <PurchaseOrderCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/orders/:id" element={currentuser ? <PurchaseOrderDetail /> : <Navigate to="/login" />} />
-          <Route path="/purchase/receives" element={currentuser ? <PurchaseReceives /> : <Navigate to="/login" />} />
-          <Route path="/purchase/receives/new" element={currentuser ? <PurchaseReceiveCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/receives/:id/edit" element={currentuser ? <PurchaseReceiveCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/receives/:id" element={currentuser ? <PurchaseReceiveDetail /> : <Navigate to="/login" />} />
-          <Route path="/purchase/bills/new" element={currentuser ? <Bills /> : <Navigate to="/login" />} />
-          <Route path="/purchase/bills/:id/edit" element={currentuser ? <Bills /> : <Navigate to="/login" />} />
-          <Route path="/purchase/bills/:id" element={currentuser ? <BillDetail /> : <Navigate to="/login" />} />
-          <Route path="/purchase/bills" element={currentuser ? <Bills /> : <Navigate to="/login" />} />
-          <Route path="/purchase/payments" element={currentuser ? <PaymentsMade /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendor-credits/new" element={currentuser ? <VendorCredits /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendor-credits/:id/edit" element={currentuser ? <VendorCredits /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendor-credits/:id" element={currentuser ? <VendorCreditDetail /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendor-credits" element={currentuser ? <VendorCredits /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendors" element={currentuser ? <PurchaseVendors /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendors/new" element={currentuser ? <PurchaseVendorCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendors/:id/edit" element={currentuser ? <PurchaseVendorCreate /> : <Navigate to="/login" />} />
-          <Route path="/purchase/vendors/:id" element={currentuser ? <PurchaseVendorDetail /> : <Navigate to="/login" />} />
+          <Route path="/purchase/orders" element={<AdminRestrictedGuard><PurchaseOrders /></AdminRestrictedGuard>} />
+          <Route path="/purchase/orders/new" element={<AdminRestrictedGuard><PurchaseOrderCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/orders/:id/edit" element={<AdminRestrictedGuard><PurchaseOrderCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/orders/:id" element={<AdminRestrictedGuard><PurchaseOrderDetail /></AdminRestrictedGuard>} />
+          <Route path="/purchase/receives" element={<AdminRestrictedGuard><PurchaseReceives /></AdminRestrictedGuard>} />
+          <Route path="/purchase/receives/new" element={<AdminRestrictedGuard><PurchaseReceiveCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/receives/:id/edit" element={<AdminRestrictedGuard><PurchaseReceiveCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/receives/:id" element={<AdminRestrictedGuard><PurchaseReceiveDetail /></AdminRestrictedGuard>} />
+          <Route path="/purchase/bills/new" element={<AdminRestrictedGuard><Bills /></AdminRestrictedGuard>} />
+          <Route path="/purchase/bills/:id/edit" element={<AdminRestrictedGuard><Bills /></AdminRestrictedGuard>} />
+          <Route path="/purchase/bills/:id" element={<AdminRestrictedGuard><BillDetail /></AdminRestrictedGuard>} />
+          <Route path="/purchase/bills" element={<AdminRestrictedGuard><Bills /></AdminRestrictedGuard>} />
+          <Route path="/purchase/payments" element={<AdminRestrictedGuard><PaymentsMade /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendor-credits/new" element={<AdminRestrictedGuard><VendorCredits /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendor-credits/:id/edit" element={<AdminRestrictedGuard><VendorCredits /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendor-credits/:id" element={<AdminRestrictedGuard><VendorCreditDetail /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendor-credits" element={<AdminRestrictedGuard><VendorCredits /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendors" element={<AdminRestrictedGuard><PurchaseVendors /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendors/new" element={<AdminRestrictedGuard><PurchaseVendorCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendors/:id/edit" element={<AdminRestrictedGuard><PurchaseVendorCreate /></AdminRestrictedGuard>} />
+          <Route path="/purchase/vendors/:id" element={<AdminRestrictedGuard><PurchaseVendorDetail /></AdminRestrictedGuard>} />
 
           {/* Reports */}
           <Route path="/reports/sales-by-invoice" element={currentuser ? <SalesByInvoiceReport /> : <Navigate to="/login" />} />
@@ -294,7 +333,7 @@ const App = () => {
           <Route path="/reports/income-expense" element={currentuser ? <IncomeExpenseReport /> : <Navigate to="/login" />} />
           
           {/* Reorder Alerts */}
-          <Route path="/inventory/reorder-alerts" element={currentuser ? <ReorderAlerts /> : <Navigate to="/login" />} />
+          <Route path="/inventory/reorder-alerts" element={<AdminRestrictedGuard><ReorderAlerts /></AdminRestrictedGuard>} />
 
         </Routes>
       </div>

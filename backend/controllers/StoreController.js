@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 // Fallback guaranteed active stores
 export const fallbackStores = [
   { name: "Warehouse", locCode: "858", locName: "Warehouse", isActive: true },
+  { name: "BridesBerry", locCode: "155", locName: "BridesBerry", isActive: true },
 ];
 
 // Decommissioned old branch locCodes that must remain excluded
@@ -33,7 +34,7 @@ export const DISCARDED_NAME_PATTERNS = [
   "production", "office", "head office", "dappr squad",
   "z-edapally", "z-edappal", "z-perinthalmanna", "z-kottakkal",
   "suitorguy mg road", "mg road", "mgroad",
-  "brides berry", "brides berry ", "test store tranfer"
+  "test store tranfer"
 ];
 
 export const isAllowedStore = (store) => {
@@ -41,8 +42,8 @@ export const isAllowedStore = (store) => {
   const code = (store.locCode || "").toString().trim();
   const name = (store.name || store.locName || "").toLowerCase().trim();
 
-  // 1. Always keep Warehouse
-  if (code === "858" || code === "103" || name.includes("warehouse")) {
+  // 1. Always keep Warehouse and BridesBerry
+  if (code === "858" || code === "103" || code === "155" || name.includes("warehouse") || name.includes("bridesberry") || name.includes("brides berry")) {
     return true;
   }
 

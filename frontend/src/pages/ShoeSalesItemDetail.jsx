@@ -120,6 +120,15 @@ const ALLOWED_WAREHOUSES_DISPLAY = [
 ];
 
 // Helper function to normalize warehouse name to display name
+// Match a name to an allowed display name ignoring spaces/case ("Brides Berry" === "BridesBerry")
+const compactName = (n) => (n || "").toString().toLowerCase().replace(/[s.-_]/g, "");
+const matchAllowedWarehouse = (displayName, allowedList) => {
+  if (!displayName) return null;
+  if (allowedList.includes(displayName)) return displayName;
+  const key = compactName(displayName);
+  return allowedList.find(a => compactName(a) === key) || null;
+};
+
 const normalizeWarehouseName = (warehouseName) => {
   if (!warehouseName) return null;
   // Check exact match first
@@ -173,7 +182,47 @@ const ShoeSalesItemDetail = () => {
   // Get user info for filtering (must be defined before useEffects that use it)
   const userStr = localStorage.getItem("rootfinuser");
   const user = userStr ? JSON.parse(userStr) : null;
-  const isAdmin = user?.power === "admin";
+  const userRole = (user?.role || "").toLowerCase().trim();
+  const userPower = (user?.power || "").toLowerCase().trim();
+  const userEmail = (user?.email || user?.username || "").toLowerCase().trim();
+  const userLocCode = (user?.locCode || "").toString().trim();
+
+  const adminEmails = [
+    'officerootments@gmail.com', 
+    'brynex@gmail.com',
+    'operationsrootments@gmail.com',
+    'headoffice01@gmail.com'
+  ];
+
+  const isAdmin = 
+    adminEmails.includes(userEmail) ||
+    userPower === "admin" ||
+    userPower === "super_admin" ||
+    userRole === "admin" ||
+    userRole === "superadmin";
+
+  const isWarehouse = 
+    userPower === "warehouse" || 
+    ['858', '103'].includes(userLocCode);
+
+  const isClusterAdmin = !isAdmin && (
+    userRole === "cluster_manager" || 
+    userRole === "cluster_admin" || 
+    userRole.includes("cluster")
+  );
+
+  const isStoreAdmin = !isAdmin && !isWarehouse && (
+    userRole === "store_manager" || 
+    userRole === "store_admin" || 
+    userRole === "store_user" || 
+    Boolean(user?.storeName) || 
+    Boolean(user?.storeId) || 
+    (userLocCode && !['858', '103', '759', '101', '102'].includes(userLocCode)) || 
+    userEmail.includes("bridesberry") || 
+    (user?.username || "").toLowerCase().includes("bridesberry")
+  );
+
+  const canAccessAdminRestrictedModules = (isAdmin || isWarehouse) && !isClusterAdmin;
   
   // Fallback locations mapping
   const fallbackLocations = getActiveStores();
@@ -895,9 +944,9 @@ const ShoeSalesItemDetail = () => {
       itemWarehouseStocks.forEach(stock => {
         if (stock.warehouse) {
           // Normalize the warehouse name to display name
-          const displayName = normalizeWarehouseName(stock.warehouse);
+          const displayName = matchAllowedWarehouse(normalizeWarehouseName(stock.warehouse) || stock.warehouse, ALLOWED_WAREHOUSES_DISPLAY);
           console.log(`  Normalizing "${stock.warehouse}" -> "${displayName}"`);
-          if (displayName && ALLOWED_WAREHOUSES_DISPLAY.includes(displayName)) {
+          if (displayName) {
             // Store with display name as key, but keep original stock data
             stockMap.set(displayName, {
               ...stock,
@@ -964,8 +1013,8 @@ const ShoeSalesItemDetail = () => {
       const stockMap = new Map();
       item.warehouseStocks.forEach(stock => {
         if (stock.warehouse) {
-          const displayName = normalizeWarehouseName(stock.warehouse);
-          if (displayName && ALLOWED_WAREHOUSES_DISPLAY.includes(displayName)) {
+          const displayName = matchAllowedWarehouse(normalizeWarehouseName(stock.warehouse) || stock.warehouse, ALLOWED_WAREHOUSES_DISPLAY);
+          if (displayName) {
             stockMap.set(displayName, {
               ...stock,
               warehouse: displayName
@@ -1284,16 +1333,20 @@ const ShoeSalesItemDetail = () => {
                       </button>
                       {showMoreMenu && (
                         <div className="absolute right-0 mt-2 w-48 rounded-lg border border-[#d7dcf5] bg-white shadow-lg z-50 overflow-hidden">
-                          <button
-                            onClick={() => {
-                              setShowInactiveModal(true);
-                              setShowMoreMenu(false);
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#1f2937] hover:bg-[#f8fafc] transition-colors"
-                          >
-                            Mark as Inactive
-                          </button>
-                          <div className="h-px bg-[#e7ebf8]"></div>
+                          {canAccessAdminRestrictedModules && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setShowInactiveModal(true);
+                                  setShowMoreMenu(false);
+                                }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#1f2937] hover:bg-[#f8fafc] transition-colors"
+                              >
+                                Mark as Inactive
+                              </button>
+                              <div className="h-px bg-[#e7ebf8]"></div>
+                            </>
+                          )}
                           <button
                             onClick={() => {
                               setShowDeleteModal(true);

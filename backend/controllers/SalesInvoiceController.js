@@ -76,6 +76,27 @@ export const createSalesInvoice = async (req, res) => {
       return res.status(400).json({ message: "Customer name and userId are required" });
     }
 
+    // Validate split payment amounts if split payment is selected
+    if (invoiceData.isSplitPayment && invoiceData.splitPaymentAmounts) {
+      const splitCash = parseFloat(invoiceData.splitPaymentAmounts.cash || 0) || 0;
+      const splitBank = parseFloat(invoiceData.splitPaymentAmounts.bank || 0) || 0;
+      const splitUpi = parseFloat(invoiceData.splitPaymentAmounts.upi || 0) || 0;
+      const splitRbl = parseFloat(invoiceData.splitPaymentAmounts.rbl || 0) || 0;
+
+      if (splitCash < 0 || splitBank < 0 || splitUpi < 0 || splitRbl < 0) {
+        return res.status(400).json({ message: "Split payment amounts cannot be negative" });
+      }
+
+      const splitTotal = Math.round((splitCash + splitBank + splitUpi + splitRbl) * 100) / 100;
+      const targetTotal = Math.round(Math.abs(parseFloat(invoiceData.finalTotal || 0)) * 100) / 100;
+
+      if (targetTotal > 0 && Math.abs(splitTotal - targetTotal) > 0.05) {
+        return res.status(400).json({
+          message: `Split payment total (₹${splitTotal.toFixed(2)}) does not match invoice total (₹${targetTotal.toFixed(2)}). Difference: ₹${Math.abs(splitTotal - targetTotal).toFixed(2)}`
+        });
+      }
+    }
+
     // Determine invoice prefix
     let invoicePrefix = "INV-";
     const categoryLower = (invoiceData.category || "").toLowerCase();
@@ -525,6 +546,27 @@ export const updateSalesInvoice = async (req, res) => {
     }
     if (req.body.returnStatus) {
       req.body.returnStatus = req.body.returnStatus.toLowerCase();
+    }
+
+    // Validate split payment amounts if split payment is selected
+    if (req.body.isSplitPayment && req.body.splitPaymentAmounts) {
+      const splitCash = parseFloat(req.body.splitPaymentAmounts.cash || 0) || 0;
+      const splitBank = parseFloat(req.body.splitPaymentAmounts.bank || 0) || 0;
+      const splitUpi = parseFloat(req.body.splitPaymentAmounts.upi || 0) || 0;
+      const splitRbl = parseFloat(req.body.splitPaymentAmounts.rbl || 0) || 0;
+
+      if (splitCash < 0 || splitBank < 0 || splitUpi < 0 || splitRbl < 0) {
+        return res.status(400).json({ message: "Split payment amounts cannot be negative" });
+      }
+
+      const splitTotal = Math.round((splitCash + splitBank + splitUpi + splitRbl) * 100) / 100;
+      const targetTotal = Math.round(Math.abs(parseFloat(req.body.finalTotal || 0)) * 100) / 100;
+
+      if (targetTotal > 0 && Math.abs(splitTotal - targetTotal) > 0.05) {
+        return res.status(400).json({
+          message: `Split payment total (₹${splitTotal.toFixed(2)}) does not match invoice total (₹${targetTotal.toFixed(2)}). Difference: ₹${Math.abs(splitTotal - targetTotal).toFixed(2)}`
+        });
+      }
     }
 
     const invoice = await SalesInvoice.findByIdAndUpdate(

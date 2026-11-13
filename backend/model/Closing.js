@@ -27,11 +27,6 @@ const CloseSchema = new mongoose.Schema(
         email: {
             type: String,
             default: ""
-        },
-        status: {
-            type: String,
-            enum: ["closed", "pending_approval"],
-            default: "closed"
         }
     },
     { timestamps: true }

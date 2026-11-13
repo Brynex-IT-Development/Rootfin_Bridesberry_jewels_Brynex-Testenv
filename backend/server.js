@@ -29,7 +29,6 @@ import InventoryReportRoutes from "./route/InventoryReportRoutes.js";
 import ReorderAlertRoutes from "./route/ReorderAlertRoutes.js";
 import ManufacturerRoutes from "./route/ManufacturerRoutes.js";
 import BrandRoutes from "./route/BrandRoutes.js";
-import ExpenseTargetRoutes from "./route/ExpenseTargetRoutes.js";
 import setupSwagger   from "./swagger.js";
 
 const env     = process.env.NODE_ENV || "development";
@@ -59,7 +58,9 @@ const allowedOrigins = [
   "https://rootfin-production.vercel.app",
   "https://rootfinjewels.brynex.com",
   "https://rootfin-brynex-testenv.vercel.app",
-  "https://brynex-jewels-bnwf.vercel.app"
+  "https://brynex-jewels-bnwf.vercel.app",
+  "https://3.26.27.90",
+  "http://3.26.27.90"
 ];
 
 const corsOptions = {
@@ -73,6 +74,7 @@ const corsOptions = {
       /\.onrender\.com$/.test(origin) ||
       /\.rootments\.live$/.test(origin) ||
       /\.brynex\.com$/.test(origin) ||
+      /^https?:\/\/3\.26\.27\.90(:\d+)?$/.test(origin) ||
       /^http:\/\/localhost(:\d+)?$/.test(origin) ||
       /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)
     ) {
@@ -125,7 +127,6 @@ app.use("/api/reports/inventory", InventoryReportRoutes);
 app.use("/api",     ReorderAlertRoutes);
 app.use("/api",     ManufacturerRoutes);
 app.use("/api",     BrandRoutes);
-app.use("/api",     ExpenseTargetRoutes);
 
 // Test route to verify server is running
 app.get("/api/test", (_req, res) => {

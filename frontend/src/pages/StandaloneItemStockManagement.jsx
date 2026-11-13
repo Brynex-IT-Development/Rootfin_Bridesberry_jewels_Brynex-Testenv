@@ -5,9 +5,14 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { X, Trash2, Plus, Copy, Package, Store, Check, ArrowLeft, Layers } from "lucide-react";
 import baseUrl from "../api/api";
 import useSidebar from "../hooks/useSidebar";
-import { useActiveStores, isAllowedStoreNameOrCode } from "../utils/storeService.js";
 
 const API_ROOT = (baseUrl?.baseUrl || "").replace(/\/$/, "");
+
+// Warehouse names for the dropdown - restricted to Warehouse and Brides Berry
+const WAREHOUSES = [
+  "Warehouse",
+  "Brides Berry"
+];
 
 const StandaloneItemStockManagement = () => {
   const isSidebarOpen = useSidebar();
@@ -17,7 +22,6 @@ const StandaloneItemStockManagement = () => {
   const stockType = (searchParams.get("type") || "accounting").toLowerCase();
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(false);
-  const { warehouseOptions } = useActiveStores();
   const [copiedField, setCopiedField] = useState(null);
   const [stockRows, setStockRows] = useState([
     { warehouse: "", openingStock: "0", openingStockValue: "0", physicalOpeningStock: "0" }
@@ -27,16 +31,16 @@ const StandaloneItemStockManagement = () => {
   // Prevent mouse wheel from changing number input values
   usePreventNumberInputScroll();
   
-  // Set warehouses to the dynamic active list
+  // Set warehouses to the specified list
   useEffect(() => {
-    const list = warehouseOptions && warehouseOptions.length > 0 ? warehouseOptions : ["Warehouse", "MG Road"];
-    const sortedWarehouses = [...list].sort((a, b) => {
+    // Sort warehouses: "Warehouse" first, then alphabetically
+    const sortedWarehouses = [...WAREHOUSES].sort((a, b) => {
       if (a === "Warehouse") return -1;
       if (b === "Warehouse") return 1;
       return a.localeCompare(b);
     });
     setWarehouses(sortedWarehouses);
-  }, [warehouseOptions]);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -55,7 +59,7 @@ const StandaloneItemStockManagement = () => {
         if (data.warehouseStocks && Array.isArray(data.warehouseStocks) && data.warehouseStocks.length > 0) {
           const existingRows = data.warehouseStocks
             .filter(stock => {
-              if (!stock.warehouse || !isAllowedStoreNameOrCode("", stock.warehouse)) {
+              if (!stock.warehouse || !WAREHOUSES.includes(stock.warehouse)) {
                 return false;
               }
               const stockOnHand = parseFloat(stock.stockOnHand) || 0;
@@ -112,7 +116,7 @@ const StandaloneItemStockManagement = () => {
             if (data.warehouseStocks && Array.isArray(data.warehouseStocks) && data.warehouseStocks.length > 0) {
               const existingRows = data.warehouseStocks
                 .filter(stock => {
-                  if (!stock.warehouse || !isAllowedStoreNameOrCode("", stock.warehouse)) {
+                  if (!stock.warehouse || !WAREHOUSES.includes(stock.warehouse)) {
                     return false;
                   }
                   const stockOnHand = parseFloat(stock.stockOnHand) || 0;
@@ -188,28 +192,35 @@ const StandaloneItemStockManagement = () => {
   const handleSave = async () => {
     try {
       setLoading(true);
+      // Start from the existing entries so stock in other stores (not shown in this form) is preserved
       const byWarehouse = new Map();
+      (item?.warehouseStocks || []).forEach(ws => {
+        if (ws && ws.warehouse) byWarehouse.set(ws.warehouse, { ...ws });
+      });
+
+      const setStock = (warehouse, qty) => {
+        const current = byWarehouse.get(warehouse) || { warehouse };
+        current.openingStock = qty;
+        current.openingStockValue = 0;
+        current.stockOnHand = qty;
+        current.availableForSale = qty;
+        current.physicalOpeningStock = qty;
+        current.physicalStockOnHand = qty;
+        current.physicalAvailableForSale = qty;
+        byWarehouse.set(warehouse, current);
+      };
+
+      // Editable warehouses removed from the form are set to 0
+      const formWarehouses = new Set(stockRows.map(r => r.warehouse).filter(Boolean));
+      WAREHOUSES.forEach(wh => {
+        if (byWarehouse.has(wh) && !formWarehouses.has(wh)) setStock(wh, 0);
+      });
 
       stockRows
         .filter(row => row.warehouse && row.warehouse.trim() !== "")
-        .forEach(row => {
-          const opening = parseFloat(row.openingStock) || 0;
-          
-          if (opening > 0) {
-            const current = { warehouse: row.warehouse };
+        .forEach(row => setStock(row.warehouse, parseFloat(row.openingStock) || 0));
 
-            current.openingStock = opening;
-            current.openingStockValue = 0;
-            current.stockOnHand = opening;
-            current.availableForSale = opening;
-            current.physicalOpeningStock = opening;
-            current.physicalStockOnHand = opening;
-            current.physicalAvailableForSale = opening;
-
-            byWarehouse.set(row.warehouse, current);
-          }
-        });
-
+      // Keep zero-stock entries so a 0 actually overwrites the old value
       const stockData = Array.from(byWarehouse.values());
       const currentUser = JSON.parse(localStorage.getItem("rootfinuser")) || {};
       const changedBy = currentUser.username || currentUser.locName || "System";
